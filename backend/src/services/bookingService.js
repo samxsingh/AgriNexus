@@ -194,7 +194,7 @@ const initDemoBookings = () => {
 
 initDemoBookings();
 
-const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQuantityQuintals }) => {
+const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQuantityQuintals, io }) => {
   const reqQty = Number(estimatedQuantityQuintals) || 1;
 
   // 1. Verify Slot Existence
@@ -346,6 +346,9 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
       assignedStaffDesignation: staffAssignment.assignedStaffDesignation,
       assignmentStatus: staffAssignment.assignmentStatus
     });
+    // Dual-write into inMemoryBookings for instant fast cross-layer lookups & reconciliation
+    const bId = newBooking._id.toString();
+    inMemoryBookings.set(bId, newBooking.toObject ? newBooking.toObject() : newBooking);
   } catch (dbErr) {
     const id = 'bkg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     newBooking = {
@@ -381,18 +384,39 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
 
   // 8. Create Initial QueueEntry in state WAITING
   const bookingId = newBooking._id ? newBooking._id.toString() : newBooking.id;
-  try {
-    await QueueEntry.create({
-      bookingId,
-      farmerId,
-      centreId,
-      slotId,
-      tokenNumber,
-      queueDate: slot.date,
-      sequenceNumber,
-      state: 'WAITING'
-    });
-  } catch (qErr) {
+  const isInMemoryBooking = typeof bookingId === 'string' && bookingId.startsWith('bkg_');
+
+  if (!isInMemoryBooking) {
+    try {
+      const qDoc = await QueueEntry.create({
+        bookingId,
+        farmerId,
+        centreId,
+        slotId,
+        tokenNumber,
+        queueDate: slot.date,
+        sequenceNumber,
+        state: 'WAITING'
+      });
+      const qId = qDoc._id.toString();
+      inMemoryQueueEntries.set(qId, qDoc.toObject ? qDoc.toObject() : qDoc);
+    } catch (qErr) {
+      const qId = 'qe_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      inMemoryQueueEntries.set(qId, {
+        _id: qId,
+        bookingId,
+        farmerId,
+        centreId,
+        slotId,
+        tokenNumber,
+        queueDate: slot.date,
+        sequenceNumber,
+        state: 'WAITING',
+        createdAt: new Date()
+      });
+    }
+  } else {
+    // If Booking is fallback in-memory, keep QueueEntry strictly in memory to prevent orphan records
     const qId = 'qe_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     inMemoryQueueEntries.set(qId, {
       _id: qId,
@@ -408,7 +432,27 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
     });
   }
 
-  // 9. Dispatch Non-blocking Notification to Farmer
+  // 9. Real-Time Socket.IO Synchronization & Non-blocking Notification
+  const farmerIdStr = farmerId?.toString ? farmerId.toString() : farmerId;
+  const centreIdStr = centreId?.toString ? centreId.toString() : centreId;
+  if (io) {
+    const qePayload = {
+      bookingId,
+      farmerId: farmerIdStr,
+      centreId: centreIdStr,
+      tokenNumber,
+      queueDate: slot.date,
+      sequenceNumber,
+      state: 'WAITING',
+      timeWindow: slot.timeWindow,
+      cropType: cropType || 'Wheat',
+      quantityQuintals: reqQty
+    };
+    io.to(`centre_${centreIdStr}`).emit('queue:updated', qePayload);
+    io.to(`farmer_${farmerIdStr}`).emit('queue:updated', qePayload);
+    io.to('admin_global').emit('queue:updated', { ...qePayload, centreId: centreIdStr });
+  }
+
   try {
     let farmerUser = null;
     try {
@@ -416,13 +460,13 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
     } catch (uErr) {
       // ignore
     }
-    const farmerIdStr = farmerId?.toString ? farmerId.toString() : farmerId;
     dispatchNotification({
       userId: farmerIdStr,
       phone: farmerUser?.phone,
       title: 'Procurement Slot Confirmed',
       message: `Your delivery slot for ${cropType || 'Wheat'} is confirmed for ${slot.date} (${slot.timeWindow}). Token: ${tokenNumber}.`,
-      event: 'SLOT_CONFIRMED'
+      event: 'SLOT_CONFIRMED',
+      io
     });
   } catch (notifErr) {
     console.warn('[Booking Service] Notification dispatch warning:', notifErr.message);

@@ -745,12 +745,8 @@ const approveStaffApplication = async (req, res, next) => {
     // 5. Update Application to APPROVED
     app.status = 'APPROVED';
     app.approvalNote = approvalNote || 'Verified and approved by Government Administrator.';
-    if (isMongoCentre) {
-      app.assignedCentreId = targetCentre._id;
-    }
-    if (mongoose.Types.ObjectId.isValid(userId)) {
-      app.createdUserId = targetUser._id;
-    }
+    app.assignedCentreId = targetCentre._id || targetCentre.id;
+    app.createdUserId = targetUser._id || targetUser.id;
     app.reviewedBy = req.user._id || req.user.id;
     app.approvedAt = new Date();
     app.reviewedAt = new Date();
@@ -760,6 +756,18 @@ const approveStaffApplication = async (req, res, next) => {
     } else {
       inMemoryApplications.set(app.applicationId, app);
     }
+
+    // Keep in-memory cache synchronized across all roles
+    const { inMemoryCentres } = require('./centreController');
+    const existingCentreIdx = inMemoryCentres.findIndex((c) => (c._id || c.id) === centreId || c.centreCode === centreCode);
+    if (existingCentreIdx !== -1) {
+      inMemoryCentres[existingCentreIdx] = { ...inMemoryCentres[existingCentreIdx], ...targetCentre, currentHeadId: userId, isActive: true };
+    } else {
+      inMemoryCentres.push({ ...targetCentre, currentHeadId: userId, isActive: true });
+    }
+
+    if (targetUser.id) inMemoryUsers.set(targetUser.id, targetUser);
+    if (targetUser._id) inMemoryUsers.set(targetUser._id.toString(), targetUser);
 
     // 6. Clean up any accidental orphan duplicate centres created previously for this application
     if (isMongoCentre) {

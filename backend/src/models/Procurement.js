@@ -3,22 +3,22 @@ const mongoose = require('mongoose');
 const procurementSchema = new mongoose.Schema(
   {
     bookingId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'Booking',
       required: true,
       unique: true
     },
     queueEntryId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'QueueEntry'
     },
     farmerId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'User',
       required: true
     },
     centreId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'ProcurementCentre',
       required: true
     },

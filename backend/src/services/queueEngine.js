@@ -64,7 +64,13 @@ const callNextFarmer = async ({ centreId, queueDate, staffUser, counterId = 'Cou
     }
   }
 
+  const mongoose = require('mongoose');
   const centreQuery = [centreId, centreId ? centreId.toString() : 'c1'];
+  if (centreId && mongoose.Types.ObjectId.isValid(centreId.toString())) {
+    try {
+      centreQuery.push(new mongoose.Types.ObjectId(centreId.toString()));
+    } catch (e) {}
+  }
 
   let nextEntry = null;
   try {

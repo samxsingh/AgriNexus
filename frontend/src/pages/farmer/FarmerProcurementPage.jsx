@@ -183,13 +183,40 @@ export const FarmerProcurementPage = () => {
   // Compute canonical operational stage index (0 to 9)
   const getStageFromStatus = () => {
     // 1. Direct payment completion or payment status check
-    if (paymentStatus?.currentStage === 'PAID' || paymentStatus?.status === 'SUCCESS' || procurement?.paymentStatus === 'PAID') {
+    const pCurrentStage = (paymentStatus?.currentStage || '').toUpperCase();
+    const pStatus = (paymentStatus?.status || '').toUpperCase();
+    const procPaymentStatus = (procurement?.paymentStatus || '').toUpperCase();
+    const procStatus = (procurement?.status || procurement?.procurementStatus || '').toUpperCase();
+
+    if (
+      pCurrentStage === 'PAID' ||
+      pCurrentStage === 'PAYMENT_COMPLETED' ||
+      pStatus === 'SUCCESS' ||
+      pStatus === 'PAID' ||
+      procPaymentStatus === 'PAID' ||
+      procPaymentStatus === 'COMPLETED' ||
+      (booking?.operationalStatus || '').toUpperCase() === 'PAYMENT_COMPLETED' ||
+      (booking?.bookingStatus || '').toUpperCase() === 'COMPLETED'
+    ) {
       return 9; // PAYMENT_COMPLETED
     }
-    if (paymentStatus?.currentStage === 'PAYMENT_PROCESSING' || procurement?.paymentStatus === 'PROCESSING') {
+
+    if (
+      pCurrentStage === 'PAYMENT_PROCESSING' ||
+      pCurrentStage === 'PROCESSING' ||
+      procPaymentStatus === 'PROCESSING' ||
+      (booking?.operationalStatus || '').toUpperCase() === 'PAYMENT_PROCESSING'
+    ) {
       return 8; // PAYMENT_PROCESSING
     }
-    if (procurement?.procurementStatus === 'COMPLETED' || booking?.operationalStatus === 'PROCUREMENT_CONFIRMED' || booking?.operationalStatus === 'PROCUREMENT COMPLETE') {
+
+    if (
+      procStatus === 'COMPLETED' ||
+      procStatus === 'PROCUREMENT_CONFIRMED' ||
+      pCurrentStage === 'PROCUREMENT_COMPLETED' ||
+      (booking?.operationalStatus || '').toUpperCase() === 'PROCUREMENT_CONFIRMED' ||
+      (booking?.operationalStatus || '').toUpperCase() === 'PROCUREMENT_COMPLETE'
+    ) {
       return 7; // PROCUREMENT_CONFIRMED
     }
 
@@ -232,7 +259,7 @@ export const FarmerProcurementPage = () => {
   const currentStageIndex = getStageFromStatus();
 
   const getStageLabel = (stage) => {
-    return t(`farmer.${stage.translationKey}`, stage.defaultLabel);
+    return t(`farmer.${stage.translationKey}`, t(stage.translationKey, stage.defaultLabel));
   };
 
   // Safe normalized centre details
@@ -416,7 +443,7 @@ export const FarmerProcurementPage = () => {
                     key: s.key,
                     short: s.short,
                     label: getStageLabel(s),
-                    meaning: t(s.meaningKey, s.defaultMeaning),
+                    meaning: t(`farmer.${s.meaningKey}`, t(s.meaningKey, s.defaultMeaning)),
                     timestamp: s.num <= currentStageIndex + 1 ? 'Logged' : null
                   }))}
                   currentIndex={currentStageIndex}

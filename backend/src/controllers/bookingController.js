@@ -1,7 +1,8 @@
 const Booking = require('../models/Booking');
 const QueueEntry = require('../models/QueueEntry');
+const Slot = require('../models/Slot');
 const ProcurementCentre = require('../models/ProcurementCentre');
-const { createBooking, inMemoryBookings, inMemoryQueueEntries } = require('../services/bookingService');
+const { createBooking, inMemoryBookings, inMemoryQueueEntries, inMemorySlots } = require('../services/bookingService');
 const { inMemoryCentres } = require('./centreController');
 
 const createFarmerBooking = async (req, res, next) => {
@@ -18,13 +19,15 @@ const createFarmerBooking = async (req, res, next) => {
         }
       });
     }
+    const io = req.app.get('io');
 
     const booking = await createBooking({
       farmerId,
       centreId,
       slotId,
       cropType: cropType || 'Wheat',
-      estimatedQuantityQuintals: Number(estimatedQuantityQuintals) || 50
+      estimatedQuantityQuintals: Number(estimatedQuantityQuintals) || 50,
+      io
     });
 
     // Populate centre info for response
@@ -223,12 +226,16 @@ const cancelBooking = async (req, res, next) => {
   try {
     const { id } = req.params;
     const farmerId = req.user.id || req.user._id;
+    const farmerIdStr = farmerId ? farmerId.toString() : '';
+    const io = req.app.get('io');
 
     let booking = null;
     try {
       booking = await Booking.findOne({ _id: id, farmerId });
       if (booking) {
         booking.bookingStatus = 'CANCELLED';
+        booking.status = 'CANCELLED';
+        booking.operationalStatus = 'CANCELLED';
         booking.cancelledAt = new Date();
         await booking.save();
       }
@@ -236,7 +243,23 @@ const cancelBooking = async (req, res, next) => {
       booking = inMemoryBookings.get(id);
       if (booking) {
         booking.bookingStatus = 'CANCELLED';
+        booking.status = 'CANCELLED';
+        booking.operationalStatus = 'CANCELLED';
         booking.cancelledAt = new Date();
+      }
+    }
+
+    if (!booking) {
+      for (const [, b] of inMemoryBookings) {
+        const bFarmer = b.farmerId?._id ? b.farmerId._id.toString() : (b.farmerId ? b.farmerId.toString() : '');
+        if ((b.id === id || b._id === id || b.bookingReference === id) && (!farmerIdStr || bFarmer === farmerIdStr)) {
+          booking = b;
+          booking.bookingStatus = 'CANCELLED';
+          booking.status = 'CANCELLED';
+          booking.operationalStatus = 'CANCELLED';
+          booking.cancelledAt = new Date();
+          break;
+        }
       }
     }
 
@@ -248,6 +271,64 @@ const cancelBooking = async (req, res, next) => {
           message: 'Booking not found or unauthorized.'
         }
       });
+    }
+
+    const bIdStr = (booking._id || booking.id).toString();
+    const centreId = booking.centreId?._id ? booking.centreId._id.toString() : (booking.centreId ? booking.centreId.toString() : '');
+
+    // 1. Cancel QueueEntry in DB and in-memory
+    try {
+      await QueueEntry.findOneAndUpdate(
+        { bookingId: booking._id || id },
+        { $set: { state: 'CANCELLED', cancelledAt: new Date() } }
+      );
+    } catch (qErr) {
+      // ignore
+    }
+    for (const [, qe] of inMemoryQueueEntries) {
+      const qeBId = qe.bookingId?._id ? qe.bookingId._id.toString() : (qe.bookingId ? qe.bookingId.toString() : '');
+      if (qeBId === bIdStr || qeBId === id) {
+        qe.state = 'CANCELLED';
+        qe.cancelledAt = new Date();
+        break;
+      }
+    }
+
+    // 2. Release capacity on Slot
+    const slotId = booking.slotId?._id || booking.slotId;
+    const qty = Number(booking.estimatedQuantityQuintals || 0);
+    if (slotId) {
+      try {
+        await Slot.findByIdAndUpdate(slotId, {
+          $inc: { bookedFarmersCount: -1, bookedCapacityQuintals: -qty },
+          $set: { status: 'AVAILABLE' }
+        });
+      } catch (sErr) {
+        const s = inMemorySlots.get(slotId.toString());
+        if (s) {
+          s.bookedFarmersCount = Math.max(0, (s.bookedFarmersCount || 1) - 1);
+          s.bookedCapacityQuintals = Math.max(0, (s.bookedCapacityQuintals || qty) - qty);
+          s.status = 'AVAILABLE';
+        }
+      }
+    }
+
+    // 3. Broadcast Socket Events
+    if (io) {
+      const cancelPayload = {
+        bookingId: bIdStr,
+        tokenNumber: booking.tokenNumber,
+        state: 'CANCELLED',
+        cancelledAt: new Date()
+      };
+      if (centreId) {
+        io.to(`centre_${centreId}`).emit('queue:updated', cancelPayload);
+        io.to(`centre_${centreId}`).emit('queue:cancelled', cancelPayload);
+      }
+      if (farmerIdStr) {
+        io.to(`farmer_${farmerIdStr}`).emit('queue:updated', cancelPayload);
+      }
+      io.to('admin_global').emit('queue:updated', { ...cancelPayload, centreId });
     }
 
     res.status(200).json({

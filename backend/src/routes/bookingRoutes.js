@@ -7,5 +7,6 @@ router.post('/', authenticate, authorize('FARMER'), createFarmerBooking);
 router.get('/my', authenticate, authorize('FARMER'), getMyBookings);
 router.get('/:id', authenticate, getBookingById);
 router.post('/:id/cancel', authenticate, authorize('FARMER'), cancelBooking);
+router.patch('/:id/cancel', authenticate, authorize('FARMER'), cancelBooking);
 
 module.exports = router;

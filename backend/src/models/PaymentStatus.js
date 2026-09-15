@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const paymentStatusSchema = new mongoose.Schema(
   {
     bookingId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'Booking',
       required: true
     },
@@ -12,7 +12,7 @@ const paymentStatusSchema = new mongoose.Schema(
       ref: 'Procurement'
     },
     farmerId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'User',
       required: true
     },

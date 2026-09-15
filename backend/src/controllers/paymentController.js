@@ -1,6 +1,9 @@
 const { getPaymentStatusByBooking, updatePaymentStage } = require('../services/paymentService');
 const { dispatchNotification } = require('../services/notificationService');
 const Booking = require('../models/Booking');
+const User = require('../models/User');
+const { inMemoryBookings } = require('../services/bookingService');
+const { inMemoryUsers } = require('../middleware/authMiddleware');
 
 const getPaymentStatus = async (req, res, next) => {
   try {
@@ -54,9 +57,21 @@ const handleUpdatePaymentStage = async (req, res, next) => {
 
     let booking = null;
     try {
-      booking = await Booking.findById(bookingId);
+      booking = await Booking.findById(bookingId).populate('farmerId');
     } catch (e) {
       // Fallback
+    }
+
+    if (!booking) {
+      booking = inMemoryBookings.get(bookingId);
+      if (!booking) {
+        for (const [, b] of inMemoryBookings) {
+          if (b.id === bookingId || b._id === bookingId || b.bookingReference === bookingId) {
+            booking = b;
+            break;
+          }
+        }
+      }
     }
 
     if (booking && req.user.role === 'CENTRE_STAFF') {
@@ -70,7 +85,23 @@ const handleUpdatePaymentStage = async (req, res, next) => {
       }
     }
 
-    const farmerId = booking?.farmerId ? (booking.farmerId._id || booking.farmerId).toString() : req.user.id;
+    let farmerUser = null;
+    if (booking?.farmerId && typeof booking.farmerId === 'object' && booking.farmerId.phone) {
+      farmerUser = booking.farmerId;
+    } else if (booking?.farmerId) {
+      const fId = (booking.farmerId._id || booking.farmerId).toString();
+      try {
+        farmerUser = await User.findById(fId);
+      } catch (e) {
+        farmerUser = inMemoryUsers.get(fId);
+      }
+      if (!farmerUser) {
+        farmerUser = inMemoryUsers.get(fId);
+      }
+    }
+
+    const farmerId = farmerUser ? (farmerUser._id || farmerUser.id).toString() : (booking?.farmerId ? (booking.farmerId._id || booking.farmerId).toString() : req.user.id);
+    const farmerPhone = farmerUser?.phone || booking?.farmerPhone;
 
     const updatedPayment = await updatePaymentStage({
       bookingId,
@@ -78,18 +109,35 @@ const handleUpdatePaymentStage = async (req, res, next) => {
       newStage,
       totalAmount,
       role: req.user.role,
-      remarks
+      remarks,
+      io
     });
 
     // Notify farmer of payment stage progression
     dispatchNotification({
       userId: farmerId,
-      phone: req.user.phone,
+      phone: farmerPhone,
       title: 'Payment Status Updated',
       message: `Your procurement payment status updated to: ${newStage.replace(/_/g, ' ')}. Ref: ${updatedPayment.demoReferenceNumber}`,
       event: 'PAYMENT_STATUS_UPDATED',
       io
     });
+
+    // Broadcast Real-Time Payment Event
+    if (io) {
+      const payPayload = {
+        bookingId,
+        farmerId,
+        currentStage: updatedPayment.currentStage,
+        totalAmount: updatedPayment.totalAmount,
+        demoReferenceNumber: updatedPayment.demoReferenceNumber,
+        updatedAt: new Date()
+      };
+      const centreId = booking?.centreId?._id ? booking.centreId._id.toString() : (booking?.centreId ? booking.centreId.toString() : '');
+      if (centreId) io.to(`centre_${centreId}`).emit('payment:updated', payPayload);
+      if (farmerId) io.to(`farmer_${farmerId}`).emit('payment:updated', payPayload);
+      io.to('admin_global').emit('payment:updated', { ...payPayload, centreId });
+    }
 
     res.status(200).json({
       success: true,

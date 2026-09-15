@@ -11,20 +11,20 @@ const bookingSchema = new mongoose.Schema(
     tokenNumber: {
       type: String,
       required: true,
-      unique: true
+      index: true
     },
     farmerId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'User',
       required: true
     },
     centreId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'ProcurementCentre',
       required: true
     },
     slotId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'Slot',
       required: true
     },
@@ -90,7 +90,7 @@ const bookingSchema = new mongoose.Schema(
       }
     ],
     assignedStaffId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: 'User',
       default: null
     },
@@ -118,6 +118,7 @@ const bookingSchema = new mongoose.Schema(
 
 bookingSchema.index({ farmerId: 1, bookingStatus: 1 });
 bookingSchema.index({ centreId: 1, bookingDate: 1 });
+bookingSchema.index({ centreId: 1, bookingDate: 1, tokenNumber: 1 }, { unique: true });
 
 const Booking = mongoose.model('Booking', bookingSchema);
 

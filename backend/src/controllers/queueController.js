@@ -36,9 +36,17 @@ const getTodayQueue = async (req, res, next) => {
 
     const dateStr = req.query.date || getTodayIST();
 
+    const mongoose = require('mongoose');
+    const centreQuery = [centreId, centreId ? centreId.toString() : 'c1'];
+    if (centreId && mongoose.Types.ObjectId.isValid(centreId.toString())) {
+      try {
+        centreQuery.push(new mongoose.Types.ObjectId(centreId.toString()));
+      } catch (e) {}
+    }
+
     let queue = [];
     try {
-      queue = await QueueEntry.find({ centreId, queueDate: dateStr })
+      queue = await QueueEntry.find({ centreId: { $in: centreQuery }, queueDate: dateStr })
         .populate('farmerId', 'fullName phone district villageName')
         .populate('bookingId')
         .sort({ sequenceNumber: 1 })

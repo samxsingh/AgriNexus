@@ -23,6 +23,7 @@ router.get('/recommend', authenticate, getRecommendedCentres);
 // Centre Management & Staff Provisioning (Centre-scoped)
 router.get('/my/profile', authenticate, requireCentreAccess, getMyCentreProfile);
 router.put('/my/profile', authenticate, requireCentreHead, updateMyCentreProfile);
+router.patch('/my/profile', authenticate, requireCentreHead, updateMyCentreProfile);
 router.get('/my/staff', authenticate, requireCentreAccess, getMyCentreStaff);
 router.post('/my/staff', authenticate, requireCentreHead, addCentreStaffMember);
 router.patch('/my/staff/:staffId', authenticate, requireCentreHead, updateStaffMemberDetails);

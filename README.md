@@ -613,13 +613,17 @@ The platform provides one-click demo credentials for instant evaluation across a
 
 ```
 ┌────────────────────────┬──────────────────────────────────────────┬───────────────────────┬────────────────┐
-│ Stakeholder Role       │ Canonical Identifier                     │ Password              │ Target Centre  │
+│ Stakeholder Role       │ Canonical Identifier                     │ Password              │ Facility / Area│
 ├────────────────────────┼──────────────────────────────────────────┼───────────────────────┼────────────────┤
-│ 👨‍🌾 Farmer 1 (Wheat)   │ Mobile: 9876543210                       │ password123           │ Lucknow        │
-│ 👨‍🌾 Farmer 2 (Paddy)   │ Mobile: 9876543211                       │ password123           │ Lucknow        │
-│ 👨‍🌾 Farmer 3 (Mustard) │ Mobile: 9876543212                       │ password123           │ Lucknow        │
-│ 🏢 Centre Staff        │ Email: gomtinagar.centre@agrinexus.demo  │ password123           │ Gomti Nagar    │
-│ 🏢 Centre Staff        │ Email: aliganj.centre@agrinexus.demo     │ password123           │ Aliganj        │
+│ 👨‍🌾 Farmer 1 (Wheat)   │ Mobile: 9876543210 (Ramesh Patel)        │ password123           │ Chinhat, LKO   │
+│ 👨‍🌾 Farmer 2 (Paddy)   │ Mobile: 9876500004 (Kavita Devi)         │ password123           │ Kakori, LKO    │
+│ 👨‍🌾 Farmer 3 (Mustard) │ Mobile: 9876500006 (Sunil Verma)         │ password123           │ Indira Nagar   │
+│ 👨‍🌾 Farmer 4 (Paid/DBT)│ Mobile: 9876500055 (Chotey Lal)          │ password123           │ Gosainganj     │
+│ 🏢 Centre Staff Head   │ Email: gomtinagar.centre@agrinexus.demo  │ password123           │ Gomti Nagar    │
+│ 🏢 Centre Staff Head   │ Email: aliganj.centre@agrinexus.demo     │ password123           │ Aliganj        │
+│ 🏢 Centre Staff Head   │ Email: jankipuram.centre@agrinexus.demo  │ password123           │ Jankipuram     │
+│ 🏢 Centre Staff Head   │ Email: indiranagar.centre@agrinexus.demo │ password123           │ Indira Nagar   │
+│ 🏢 Centre Staff Head   │ Email: alambagh.centre@agrinexus.demo    │ password123           │ Alambagh       │
 │ 🏛️ Govt Administrator  │ Email: admin@agrinexus.gov.in            │ adminpassword         │ District HQ    │
 └────────────────────────┴──────────────────────────────────────────┴───────────────────────┴────────────────┘
 ```

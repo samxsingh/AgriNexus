@@ -69,6 +69,15 @@ io.on('connection', (socket) => {
 
   console.log(`[Socket.IO] Authenticated client connected: ${socket.id} (User: ${userId}, Role: ${role})`);
 
+  // Auto-join personal user room for push notifications across all roles
+  if (userId) {
+    socket.join(`user_${userId}`);
+    socket.join(`farmer_${userId}`);
+  }
+  if (role === 'ADMIN') {
+    socket.join('admin_global');
+  }
+
   // Room Subscription Handlers
   socket.on('join_centre', (centreId) => {
     socket.join(`centre_${centreId}`);

@@ -31,6 +31,50 @@ const connectDB = async () => {
       console.log('[Database Notice] MongoDB reconnected successfully.');
     });
 
+    // Synchronize Admin Account with authoritative credentials
+    try {
+      const bcrypt = require('bcryptjs');
+      const User = require('../models/User');
+      const adminEmail = (env.ADMIN_EMAIL || 'admin@agrinexus.gov.in').trim().toLowerCase();
+      const adminPassword = process.env.AGRINEXUS_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || 'adminpassword';
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(adminPassword, salt);
+
+      const existingAdmin = await User.findOne({
+        $or: [
+          { email: adminEmail },
+          { email: 'admin@agrinexus.gov.in' },
+          { email: 'admin@agrinexus.demo' },
+          { role: 'ADMIN' }
+        ]
+      });
+
+      if (existingAdmin) {
+        existingAdmin.email = adminEmail;
+        existingAdmin.emailNormalized = adminEmail;
+        existingAdmin.role = 'ADMIN';
+        existingAdmin.passwordHash = passwordHash;
+        existingAdmin.isActive = true;
+        existingAdmin.accountStatus = 'ACTIVE';
+        await existingAdmin.save();
+      } else {
+        await User.create({
+          fullName: 'State Administrator',
+          email: adminEmail,
+          emailNormalized: adminEmail,
+          phone: '9876543212',
+          role: 'ADMIN',
+          passwordHash,
+          district: 'Lucknow',
+          state: 'Uttar Pradesh',
+          isActive: true,
+          accountStatus: 'ACTIVE'
+        });
+      }
+    } catch (syncErr) {
+      console.warn('[Admin Sync Notice]:', syncErr.message);
+    }
+
     return conn;
   } catch (error) {
     console.warn(`[Database Notice] MongoDB server unavailable (${error.message}). Backend fallback in-memory store active.`);

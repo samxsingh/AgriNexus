@@ -92,7 +92,7 @@ const userSchema = new mongoose.Schema(
     },
     locationSource: {
       type: String,
-      enum: ['REGISTERED', 'GPS'],
+      enum: ['REGISTERED', 'GPS', 'OFFICIAL_DATA', 'DEMO'],
       default: 'REGISTERED'
     },
     locationUpdatedAt: {

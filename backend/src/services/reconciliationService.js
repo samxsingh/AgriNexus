@@ -124,7 +124,10 @@ const checkOrphanRecords = async () => {
     const payments = await PaymentStatus.find().lean();
     const bookings = await Booking.find().lean();
 
-    const bookingIdSet = new Set(bookings.map(b => b._id.toString()));
+    const bookingIdSet = new Set(bookings.map(b => (b._id || b.id).toString()));
+    for (const [id] of inMemoryBookings) {
+      bookingIdSet.add(id);
+    }
 
     for (const q of queueEntries) {
       if (q.bookingId && !bookingIdSet.has(q.bookingId.toString())) {

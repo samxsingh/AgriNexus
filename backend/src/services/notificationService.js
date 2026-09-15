@@ -22,12 +22,14 @@ const sendInAppNotification = async ({ userId, title, message, event, io }) => {
       const created = await Notification.create(doc);
       if (io) {
         io.to(`farmer_${userId}`).emit('notification:new', created);
+        io.to(`user_${userId}`).emit('notification:new', created);
       }
     } catch (dbErr) {
       const memDoc = { ...doc, _id: 'notif_' + Date.now() };
       inMemoryNotifications.push(memDoc);
       if (io) {
         io.to(`farmer_${userId}`).emit('notification:new', memDoc);
+        io.to(`user_${userId}`).emit('notification:new', memDoc);
       }
     }
     return true;
