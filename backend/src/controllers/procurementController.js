@@ -5,6 +5,7 @@ const {
 } = require('../services/procurementService');
 const Procurement = require('../models/Procurement');
 const Booking = require('../models/Booking');
+const { isSameCentre } = require('../utils/centreUtils');
 
 const handleRecordVerification = async (req, res, next) => {
   try {
@@ -69,10 +70,17 @@ const handleCompleteProcurement = async (req, res, next) => {
 const getProcurementDetails = async (req, res, next) => {
   try {
     const { bookingId } = req.params;
+    const mongoose = require('mongoose');
+    const bQuery = [bookingId, bookingId.toString()];
+    if (mongoose.Types.ObjectId.isValid(bookingId.toString())) {
+      try {
+        bQuery.push(new mongoose.Types.ObjectId(bookingId.toString()));
+      } catch (e) {}
+    }
 
     let procurement = null;
     try {
-      procurement = await Procurement.findOne({ bookingId })
+      procurement = await Procurement.findOne({ bookingId: { $in: bQuery } })
         .populate('farmerId', 'fullName phone district villageName')
         .populate('centreId', 'name address centreCode')
         .populate('bookingId', 'tokenNumber bookingDate timeWindow cropType estimatedQuantityQuintals')
@@ -105,7 +113,7 @@ const getProcurementDetails = async (req, res, next) => {
     } else if (req.user.role === 'CENTRE_STAFF') {
       const staffCentreId = req.user.assignedCentreId ? req.user.assignedCentreId.toString() : '';
       const procCentreId = procurement.centreId?._id ? procurement.centreId._id.toString() : (procurement.centreId ? procurement.centreId.toString() : '');
-      if (staffCentreId && procCentreId && staffCentreId !== procCentreId) {
+      if (staffCentreId && procCentreId && !isSameCentre(staffCentreId, procCentreId)) {
         return res.status(403).json({
           success: false,
           error: { code: 'FORBIDDEN', message: 'Staff can only view procurements for their assigned procurement centre.' }

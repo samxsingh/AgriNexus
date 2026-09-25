@@ -57,9 +57,17 @@ const initializePaymentStatus = async ({ bookingId, farmerId, initialStage = 'SL
  * Update Payment Stage (Controlled Forward Transitions Only)
  */
 const updatePaymentStage = async ({ bookingId, procurementId, farmerId, newStage, totalAmount, role = 'STAFF', remarks = '', io }) => {
+  const mongoose = require('mongoose');
+  const bQuery = [bookingId, bookingId.toString()];
+  if (mongoose.Types.ObjectId.isValid(bookingId.toString())) {
+    try {
+      bQuery.push(new mongoose.Types.ObjectId(bookingId.toString()));
+    } catch (e) {}
+  }
+
   let paymentDoc = null;
   try {
-    paymentDoc = await PaymentStatus.findOne({ bookingId });
+    paymentDoc = await PaymentStatus.findOne({ bookingId: { $in: bQuery } });
   } catch (err) {
     paymentDoc = inMemoryPayments.get(bookingId.toString());
   }
@@ -133,9 +141,17 @@ const updatePaymentStage = async ({ bookingId, procurementId, farmerId, newStage
  * Fetch Payment Status for a booking
  */
 const getPaymentStatusByBooking = async (bookingId) => {
+  const mongoose = require('mongoose');
+  const bQuery = [bookingId, bookingId.toString()];
+  if (mongoose.Types.ObjectId.isValid(bookingId.toString())) {
+    try {
+      bQuery.push(new mongoose.Types.ObjectId(bookingId.toString()));
+    } catch (e) {}
+  }
+
   let paymentDoc = null;
   try {
-    paymentDoc = await PaymentStatus.findOne({ bookingId }).lean();
+    paymentDoc = await PaymentStatus.findOne({ bookingId: { $in: bQuery } }).lean();
   } catch (err) {
     paymentDoc = inMemoryPayments.get(bookingId.toString());
   }

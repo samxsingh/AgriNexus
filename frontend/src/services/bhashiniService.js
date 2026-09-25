@@ -126,18 +126,42 @@ export const batchTranslateWithBhashini = async (texts, targetLang = 'hi', sourc
 };
 
 /**
- * Fetch supported Indian languages from server.
+ * Fetch supported Indian languages confirmed by backend Bhashini configuration.
  */
 export const fetchSupportedLanguages = async () => {
   try {
     const res = await apiClient.get('/bhashini/languages');
     if (res.success && res.data?.languages) {
+      if (res.data.configured === false) {
+        return res.data.languages.filter((l) => l.code === 'en' || l.code === 'hi');
+      }
       return res.data.languages;
     }
   } catch (err) {
     console.warn('[Bhashini Client] Languages lookup fallback:', err.message);
   }
-  return SUPPORTED_INDIAN_LANGUAGES;
+  return [
+    { code: 'en', name: 'English', nativeName: 'English' },
+    { code: 'hi', name: 'Hindi', nativeName: 'हिंदी' }
+  ];
+};
+
+/**
+ * Fetch full translation resource bundle for a language from backend.
+ * @param {string} lang Language code (e.g. 'mr', 'hi', 'pa', 'gu', 'bn', 'ta', 'te')
+ * @returns {Promise<object|null>} Translated i18n bundle
+ */
+export const fetchLanguageBundle = async (lang) => {
+  if (!lang || lang === 'en') return null;
+  try {
+    const res = await apiClient.get(`/bhashini/bundle/${encodeURIComponent(lang)}`);
+    if (res.success && res.data?.bundle) {
+      return res.data.bundle;
+    }
+  } catch (err) {
+    console.warn(`[Bhashini Client] Failed to fetch bundle for ${lang}:`, err.message);
+  }
+  return null;
 };
 
 /**

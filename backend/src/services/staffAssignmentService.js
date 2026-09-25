@@ -1,6 +1,8 @@
 const User = require('../models/User');
 const Booking = require('../models/Booking');
 const { inMemoryUsers } = require('../middleware/authMiddleware');
+const { getCentreQueryIds, isSameCentre } = require('../utils/centreUtils');
+const { getTodayIST } = require('../utils/dateUtils');
 
 /**
  * Deterministically assigns an active staff member belonging strictly to the selected procurement centre.
@@ -28,7 +30,7 @@ const assignStaffToBooking = async ({ centreId, bookingDate }) => {
   let candidates = [];
   try {
     candidates = await User.find({
-      assignedCentreId: centreId,
+      assignedCentreId: { $in: getCentreQueryIds(centreId) },
       role: 'CENTRE_STAFF',
       accountStatus: 'ACTIVE',
       isActive: true
@@ -44,7 +46,7 @@ const assignStaffToBooking = async ({ centreId, bookingDate }) => {
         const userCentre = u.assignedCentreId ? u.assignedCentreId.toString() : null;
         if (
           userCentre &&
-          (userCentre === centreIdStr || userCentre === 'c1' || centreIdStr === 'c1') &&
+          isSameCentre(userCentre, centreIdStr) &&
           u.role === 'CENTRE_STAFF' &&
           u.accountStatus === 'ACTIVE' &&
           u.isActive !== false
@@ -156,12 +158,12 @@ const assignStaffToBooking = async ({ centreId, bookingDate }) => {
  * Returns a summary map of active workloads and total today assignments for staff at a centre.
  */
 const getStaffWorkloadSummary = async ({ centreId, date }) => {
-  const queryDate = date || new Date().toISOString().split('T')[0];
+  const queryDate = date || getTodayIST();
   const summary = new Map();
 
   try {
     const bookings = await Booking.find({
-      centreId,
+      centreId: { $in: getCentreQueryIds(centreId) },
       bookingDate: queryDate
     }).select('assignedStaffId operationalStatus bookingStatus').lean();
 

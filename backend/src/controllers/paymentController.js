@@ -4,6 +4,7 @@ const Booking = require('../models/Booking');
 const User = require('../models/User');
 const { inMemoryBookings } = require('../services/bookingService');
 const { inMemoryUsers } = require('../middleware/authMiddleware');
+const { isSameCentre } = require('../utils/centreUtils');
 
 const getPaymentStatus = async (req, res, next) => {
   try {
@@ -29,7 +30,7 @@ const getPaymentStatus = async (req, res, next) => {
       } else if (req.user.role === 'CENTRE_STAFF') {
         const staffCentreId = req.user.assignedCentreId ? req.user.assignedCentreId.toString() : '';
         const bCentreId = booking.centreId?._id ? booking.centreId._id.toString() : (booking.centreId ? booking.centreId.toString() : '');
-        if (staffCentreId && bCentreId && staffCentreId !== bCentreId) {
+        if (staffCentreId && bCentreId && !isSameCentre(staffCentreId, bCentreId)) {
           return res.status(403).json({
             success: false,
             error: { code: 'FORBIDDEN', message: 'Staff can only view payments for their assigned procurement centre.' }
@@ -77,7 +78,7 @@ const handleUpdatePaymentStage = async (req, res, next) => {
     if (booking && req.user.role === 'CENTRE_STAFF') {
       const staffCentreId = req.user.assignedCentreId ? req.user.assignedCentreId.toString() : '';
       const bCentreId = booking.centreId?._id ? booking.centreId._id.toString() : (booking.centreId ? booking.centreId.toString() : '');
-      if (staffCentreId && bCentreId && staffCentreId !== bCentreId) {
+      if (staffCentreId && bCentreId && !isSameCentre(staffCentreId, bCentreId)) {
         return res.status(403).json({
           success: false,
           error: { code: 'FORBIDDEN', message: 'Staff can only update payment stages for their assigned procurement centre.' }

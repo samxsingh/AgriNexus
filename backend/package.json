@@ -7,7 +7,7 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "seed": "node seed/seed.js",
-    "test": "node test-demo-auth-matrix.js && node test-procurement-centre-verification.js && node test-centre-entity-management.js && node test-core-lifecycle.js && node test-bhashini-maps.js",
+    "test": "node test-demo-auth-matrix.js && node test-procurement-centre-verification.js && node test-centre-entity-management.js && node test-core-lifecycle.js && node test-bhashini-maps.js && node test-new-farmer-queue-flow.js",
     "test:demo-auth": "node test-demo-auth-matrix.js",
     "smoke": "node test-smoke.js && node test-demo-auth-matrix.js"
   },

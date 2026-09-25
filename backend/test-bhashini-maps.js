@@ -76,9 +76,22 @@ async function runTests() {
   // 3. Fallback Translation when unconfigured
   await asyncTest('Bhashini service gracefully falls back when unconfigured without throwing', async () => {
     bhashiniService.clearCache();
-    const result = await bhashiniService.translate('Book Slot', 'hi', 'en');
-    assert.strictEqual(result.fallback, true, 'Should indicate fallback');
-    assert.strictEqual(result.translatedText, 'Book Slot', 'Should return original text');
+    const origKey = bhashiniService.apiKey;
+    const origInf = bhashiniService.inferenceKey;
+    const origUser = bhashiniService.userId;
+    try {
+      bhashiniService.apiKey = '';
+      bhashiniService.inferenceKey = '';
+      bhashiniService.userId = '';
+      const result = await bhashiniService.translate('Book Slot', 'hi', 'en');
+      assert.strictEqual(result.fallback, true, 'Should indicate fallback');
+      assert.strictEqual(result.translatedText, 'Book Slot', 'Should return original text');
+    } finally {
+      bhashiniService.apiKey = origKey;
+      bhashiniService.inferenceKey = origInf;
+      bhashiniService.userId = origUser;
+      bhashiniService.clearCache();
+    }
   });
 
   // 4. In-Memory Cache Verification
@@ -102,18 +115,31 @@ async function runTests() {
     assert(Array.isArray(results));
     assert.strictEqual(results.length, 3);
     assert.strictEqual(results[0].original, 'Procurement Status');
-    assert.strictEqual(results[0].fallback, true);
+    assert(typeof results[0].translated === 'string');
+    assert(results[0].translated.length > 0);
   });
 
   // 6. Voice TTS & STT Extension Stubs
   await asyncTest('TTS and STT methods return graceful structured response when unconfigured', async () => {
-    const ttsRes = await bhashiniService.textToSpeech('Test', 'hi');
-    assert.strictEqual(ttsRes.supported, false);
-    assert(ttsRes.notice.includes('BHASHINI_API_KEY'));
+    const origKey = bhashiniService.apiKey;
+    const origInf = bhashiniService.inferenceKey;
+    const origUser = bhashiniService.userId;
+    try {
+      bhashiniService.apiKey = '';
+      bhashiniService.inferenceKey = '';
+      bhashiniService.userId = '';
+      const ttsRes = await bhashiniService.textToSpeech('Test', 'hi');
+      assert.strictEqual(ttsRes.supported, false);
+      assert(ttsRes.notice.includes('BHASHINI_API_KEY'));
 
-    const sttRes = await bhashiniService.speechToText('dummyBase64', 'hi');
-    assert.strictEqual(sttRes.supported, false);
-    assert(sttRes.notice.includes('BHASHINI_API_KEY'));
+      const sttRes = await bhashiniService.speechToText('dummyBase64', 'hi');
+      assert.strictEqual(sttRes.supported, false);
+      assert(sttRes.notice.includes('BHASHINI_API_KEY'));
+    } finally {
+      bhashiniService.apiKey = origKey;
+      bhashiniService.inferenceKey = origInf;
+      bhashiniService.userId = origUser;
+    }
   });
 
   // 7. Haversine Distance Mathematics

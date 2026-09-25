@@ -76,6 +76,34 @@ exports.getLanguages = async (req, res) => {
 };
 
 /**
+ * Retrieve translation resource bundle for a language.
+ * GET /api/bhashini/bundle/:lang
+ */
+exports.getLanguageBundle = async (req, res, next) => {
+  try {
+    const { lang } = req.params;
+    if (!lang || typeof lang !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Language code parameter is required.' }
+      });
+    }
+
+    const bundle = await bhashiniService.getLanguageBundle(lang);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        language: lang.toLowerCase(),
+        bundle
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Voice Text-to-Speech (TTS) extension endpoint.
  * POST /api/bhashini/tts
  */

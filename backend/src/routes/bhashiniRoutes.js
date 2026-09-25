@@ -4,6 +4,7 @@ const bhashiniController = require('../controllers/bhashiniController');
 
 // Public translation and language discovery routes
 router.get('/languages', bhashiniController.getLanguages);
+router.get('/bundle/:lang', bhashiniController.getLanguageBundle);
 router.post('/translate', bhashiniController.translateText);
 router.post('/batch-translate', bhashiniController.batchTranslate);
 

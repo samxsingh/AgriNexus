@@ -326,7 +326,7 @@ export const FarmerDashboardPage = () => {
                           size="md"
                           className="w-full lg:min-w-[200px] shadow-brutal min-h-[44px] font-black bg-wheat-accent hover:bg-wheat-accent/90 text-dark-neutral border-2 border-dark-neutral justify-center text-sm"
                         >
-                          <span>Track Procurement →</span>
+                          <span>Manage Procurement →</span>
                         </Button>
                       </Link>
                     );
@@ -334,6 +334,13 @@ export const FarmerDashboardPage = () => {
 
                   {/* Subordinate Secondary Actions: Clean text links */}
                   <div className="flex items-center justify-center lg:justify-end gap-3 text-xs pt-0.5">
+                    <Link
+                      to={`/farmer/procurement/${activeBooking.id || activeBooking._id}`}
+                      className="text-white/80 hover:text-white underline-offset-2 hover:underline font-semibold focus:outline-none focus:ring-1 focus:ring-white rounded-xs px-1"
+                    >
+                      {t('farmer.manage_booking', 'Manage Booking')}
+                    </Link>
+                    <span className="text-white/30">·</span>
                     <button
                       type="button"
                       onClick={() => {
@@ -491,7 +498,7 @@ export const FarmerDashboardPage = () => {
               </div>
 
               <div className="shrink-0 w-full sm:w-auto flex flex-col sm:flex-row gap-3">
-                <Link to="/farmer/book-slot" className="w-full sm:w-auto">
+                <Link to={selectedCentre ? `/farmer/book-slot?centreId=${selectedCentre._id || selectedCentre.id}` : "/farmer/book-slot"} className="w-full sm:w-auto">
                   <Button variant="primary" size="lg" className="w-full sm:w-auto shadow-brutal min-h-[50px] font-black">
                     <span>🌾 {t('farmer.btn_book_slot_cta', 'Book a Delivery Slot')}</span>
                     <ArrowRight className="w-5 h-5 ml-1.5" />

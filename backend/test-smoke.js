@@ -63,14 +63,15 @@ const runSmokeTest = async () => {
     console.log('2. Staff Authenticated (Assigned Centre:', centreId, '):', staffToken ? '✔ PASSED' : '❌ FAILED');
 
     // 3. Slot Discovery & Booking
-    const slotsRes = await makeRequest(`/api/slots?centreId=${centreId}&date=2026-09-02`, 'GET', null, farmerToken);
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const slotsRes = await makeRequest(`/api/slots?centreId=${centreId}&date=${todayStr}`, 'GET', null, farmerToken);
     const slot = slotsRes.body.data?.[0];
     console.log('3. Slot Discovery:', slot ? `✔ PASSED (${slotsRes.body.data.length} slots)` : '❌ FAILED');
 
     const bookingRes = await makeRequest('/api/bookings', 'POST', {
       centreId,
       slotId: slot.id || slot._id,
-      bookingDate: '2026-09-02',
+      bookingDate: todayStr,
       cropType: 'Wheat',
       estimatedQuantityQuintals: 45
     }, farmerToken);
@@ -81,7 +82,7 @@ const runSmokeTest = async () => {
     // 4. Staff CALL NEXT Execution
     const callNextRes = await makeRequest('/api/queue/call-next', 'POST', {
       centreId,
-      date: '2026-09-02',
+      date: todayStr,
       counterId: 'Counter 1'
     }, staffToken);
     const calledToken = callNextRes.body.data?.queueEntry?.tokenNumber;

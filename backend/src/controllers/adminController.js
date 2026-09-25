@@ -10,6 +10,7 @@ const { runFullSystemReconciliation } = require('../services/reconciliationServi
 const { calculateCentreHealth, determineOperationalStatus } = require('../services/centreHealthService');
 const { generateOperationalAlerts } = require('../services/alertService');
 const { getTodayIST } = require('../utils/dateUtils');
+const { getCentreQueryIds, isSameCentre, resolveCentre } = require('../utils/centreUtils');
 const ProcurementCentre = require('../models/ProcurementCentre');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
@@ -557,7 +558,6 @@ const getDistrictOverview = async (req, res, next) => {
     try {
       queueEntries = await QueueEntry.find({ queueDate: todayStr })
         .populate('farmerId', 'fullName phone villageName district')
-        .populate('centreId', 'name centreCode')
         .populate('bookingId')
         .lean();
     } catch (qErr) {
@@ -597,11 +597,11 @@ const getDistrictOverview = async (req, res, next) => {
       const cIdStr = (c._id || c.id).toString();
       const centreQueue = queueEntries.filter((q) => {
         const qCId = (q.centreId?._id || q.centreId)?.toString();
-        return qCId === cIdStr || (c.centreCode === 'LKO_GOM01' && (qCId === 'c1' || qCId === cIdStr));
+        return isSameCentre(qCId, cIdStr);
       });
       const centreProcs = procurements.filter((p) => {
         const pCId = (p.centreId?._id || p.centreId)?.toString();
-        return pCId === cIdStr || (c.centreCode === 'LKO_GOM01' && (pCId === 'c1' || pCId === cIdStr));
+        return isSameCentre(pCId, cIdStr);
       });
 
       const waitingCount = centreQueue.filter((q) => q.state === 'WAITING').length;
@@ -1032,26 +1032,16 @@ const getAdminMandis = async (req, res, next) => {
 const getAdminCentreDetail = async (req, res, next) => {
   try {
     const { centreId } = req.params;
-    let centre = null;
-    try {
-      centre = await ProcurementCentre.findById(centreId)
-        .populate('mandiId')
-        .populate('currentHeadId', 'fullName email phone designation isCentreHead')
-        .lean();
-    } catch (e) {
-      centre = Array.from(inMemoryCentres.values()).find((c) => (c._id || c.id) === centreId || c.centreCode === centreId);
-    }
-    if (!centre) {
-      centre = Array.from(inMemoryCentres.values()).find((c) => (c._id || c.id) === centreId || c.centreCode === centreId);
-    }
+    let centre = await resolveCentre(centreId, ProcurementCentre, inMemoryCentres);
     if (!centre) {
       return res.status(404).json({ success: false, error: { message: 'Centre not found' } });
     }
 
     const todayStr = getTodayIST();
+    const centreQuery = getCentreQueryIds(centre._id);
     let centreQueue = [];
     try {
-      centreQueue = await QueueEntry.find({ centreId: centre._id, queueDate: todayStr })
+      centreQueue = await QueueEntry.find({ centreId: { $in: centreQuery }, queueDate: todayStr })
         .populate('farmerId', 'fullName phone villageName')
         .lean();
     } catch (e) {
@@ -1060,14 +1050,14 @@ const getAdminCentreDetail = async (req, res, next) => {
 
     let centreProcs = [];
     try {
-      centreProcs = await Procurement.find({ centreId: centre._id }).lean();
+      centreProcs = await Procurement.find({ centreId: { $in: centreQuery } }).lean();
     } catch (e) {
       centreProcs = [];
     }
 
     let staffList = [];
     try {
-      staffList = await User.find({ assignedCentreId: centre._id, role: 'CENTRE_STAFF' })
+      staffList = await User.find({ assignedCentreId: { $in: centreQuery }, role: 'CENTRE_STAFF' })
         .select('_id fullName email phone designation isCentreHead accountStatus')
         .lean();
     } catch (e) {
@@ -1076,7 +1066,7 @@ const getAdminCentreDetail = async (req, res, next) => {
 
     let auditList = [];
     try {
-      auditList = await AuditLog.find({ centreId: centre._id })
+      auditList = await AuditLog.find({ centreId: { $in: centreQuery } })
         .sort({ createdAt: -1 })
         .limit(10)
         .lean();

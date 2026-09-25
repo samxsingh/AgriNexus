@@ -34,9 +34,44 @@ export const BookSlotPage = () => {
 
   const centreIdParam = searchParams.get('centreId') || 'c1';
 
+  const getTodayDateStrIST = () => {
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(new Date());
+    } catch (e) {
+      return new Date().toISOString().split('T')[0];
+    }
+  };
+
+  const getUpcomingDatesIST = (count = 7) => {
+    const todayISTStr = getTodayDateStrIST();
+    const [year, month, day] = todayISTStr.split('-').map(Number);
+    const istFormatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+
+    return Array.from({ length: count }, (_, i) => {
+      const d = new Date(Date.UTC(year, month - 1, day + i, 6, 0, 0));
+      const dateStr = istFormatter.format(d);
+      const displayLabel = i === 0
+        ? t('farmer.date_today', 'Today')
+        : i === 1
+        ? t('farmer.date_tomorrow', 'Tomorrow')
+        : new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', month: 'short', day: 'numeric' }).format(d);
+      return { dateStr, displayLabel };
+    });
+  };
+
   const [centre, setCentre] = useState(null);
   const [slots, setSlots] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getTodayDateStrIST);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [cropType, setCropType] = useState('Wheat');
   const [estimatedQuantity, setEstimatedQuantity] = useState(50);
@@ -88,14 +123,8 @@ export const BookSlotPage = () => {
     fetchSlots();
   }, [centreIdParam, selectedDate]);
 
-  // Generate 7 upcoming dates
-  const availableDates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().split('T')[0];
-    const displayLabel = i === 0 ? t('farmer.date_today', 'Today') : i === 1 ? t('farmer.date_tomorrow', 'Tomorrow') : d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
-    return { dateStr, displayLabel };
-  });
+  // Generate 7 upcoming dates starting from official today in IST
+  const availableDates = getUpcomingDatesIST(7);
 
   const getCropLabel = (c) => {
     switch (c) {

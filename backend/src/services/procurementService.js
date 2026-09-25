@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Procurement = require('../models/Procurement');
 const Booking = require('../models/Booking');
 const QueueEntry = require('../models/QueueEntry');
@@ -9,6 +10,7 @@ const { inMemoryBookings } = require('./bookingService');
 
 const { getMspRateForCrop, MSP_POLICY_RATES } = require('../config/policyRates');
 const { getTodayIST } = require('../utils/dateUtils');
+const { isSameCentre } = require('../utils/centreUtils');
 
 const inMemoryProcurements = new Map();
 
@@ -34,7 +36,7 @@ const recordVerification = async ({ bookingId, verifiedQuantityQuintals, moistur
   if (staffUser && staffUser.role === 'CENTRE_STAFF') {
     const staffCentre = staffUser.assignedCentreId ? staffUser.assignedCentreId.toString() : null;
     const bookingCentre = (booking.centreId?._id || booking.centreId).toString();
-    if (staffCentre && bookingCentre && staffCentre !== bookingCentre) {
+    if (staffCentre && bookingCentre && !isSameCentre(staffCentre, bookingCentre)) {
       throw new Error('Access denied. You are only authorized to operate on bookings for your assigned procurement centre.');
     }
   }
@@ -53,8 +55,15 @@ const recordVerification = async ({ bookingId, verifiedQuantityQuintals, moistur
   const mspRate = getMspRateForCrop(booking.cropType);
 
   let procurement = null;
+  const mongoose = require('mongoose');
+  const bQuery = [bookingId, bookingId?.toString()];
+  if (bookingId && mongoose.Types.ObjectId.isValid(bookingId.toString())) {
+    try {
+      bQuery.push(new mongoose.Types.ObjectId(bookingId.toString()));
+    } catch (e) {}
+  }
   try {
-    procurement = await Procurement.findOne({ bookingId });
+    procurement = await Procurement.findOne({ bookingId: { $in: bQuery } });
     if (!procurement) {
       procurement = new Procurement({
         bookingId,
@@ -126,13 +135,20 @@ const recordVerification = async ({ bookingId, verifiedQuantityQuintals, moistur
 const completeProcurementTransaction = async ({ bookingId, netWeightQuintals, grossWeightQuintals, tareWeightQuintals, deductions = 0, staffUser, notes, io }) => {
   let booking = null;
   try {
-    booking = await Booking.findById(bookingId).populate('farmerId', 'fullName phone').populate('centreId', 'name centreCode address');
+    booking = await Booking.findById(bookingId).populate('farmerId', 'fullName phone');
   } catch (err) {
     booking = inMemoryBookings.get(bookingId.toString());
   }
 
   if (!booking && inMemoryBookings.has(bookingId.toString())) {
     booking = inMemoryBookings.get(bookingId.toString());
+  }
+
+  if (booking) {
+    const rawCId = booking.centreId?._id || booking.centreId;
+    const { resolveCentre } = require('../utils/centreUtils');
+    const cDoc = await resolveCentre(rawCId, ProcurementCentre);
+    if (cDoc) booking.centreId = cDoc;
   }
 
   if (!booking) {
@@ -142,14 +158,20 @@ const completeProcurementTransaction = async ({ bookingId, netWeightQuintals, gr
   if (staffUser && staffUser.role !== 'ADMIN') {
     const staffCentre = staffUser.assignedCentreId ? staffUser.assignedCentreId.toString() : null;
     const bookingCentre = (booking.centreId?._id || booking.centreId).toString();
-    if (staffCentre && bookingCentre && staffCentre !== bookingCentre) {
+    if (staffCentre && bookingCentre && !isSameCentre(staffCentre, bookingCentre)) {
       throw new Error('Access denied. You are only authorized to operate on bookings for your assigned procurement centre.');
     }
   }
 
   let procurement = null;
+  const bQuery = [bookingId, bookingId?.toString()];
+  if (bookingId && mongoose.Types.ObjectId.isValid(bookingId.toString())) {
+    try {
+      bQuery.push(new mongoose.Types.ObjectId(bookingId.toString()));
+    } catch (e) {}
+  }
   try {
-    procurement = await Procurement.findOne({ bookingId });
+    procurement = await Procurement.findOne({ bookingId: { $in: bQuery } });
   } catch (err) {
     procurement = inMemoryProcurements.get(bookingId.toString());
   }

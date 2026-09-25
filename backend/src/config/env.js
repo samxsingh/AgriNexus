@@ -59,8 +59,10 @@ const PAYMENT_MODE = process.env.PAYMENT_MODE || 'SIMULATED';
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 
 // Digital India Bhashini APIs (Backend Proxy)
-const BHASHINI_API_KEY = process.env.BHASHINI_API_KEY || '';
-const BHASHINI_USER_ID = process.env.BHASHINI_USER_ID || '';
+const BHASHINI_API_KEY = process.env.BHASHINI_API_KEY || process.env.BHASHINI_INFERENCE_KEY || '';
+const BHASHINI_INFERENCE_KEY = process.env.BHASHINI_INFERENCE_KEY || process.env.BHASHINI_API_KEY || '';
+const BHASHINI_USER_ID = process.env.BHASHINI_USER_ID || process.env.BHASHINI_UDYAT_API || '';
+const BHASHINI_UDYAT_API = process.env.BHASHINI_UDYAT_API || process.env.BHASHINI_USER_ID || '';
 const BHASHINI_PIPELINE_ID = process.env.BHASHINI_PIPELINE_ID || '64392f96daac500b55c543d6';
 const BHASHINI_API_URL = process.env.BHASHINI_API_URL || process.env.BHASHINI_INFERENCE_URL || 'https://dhruva-api.bhashini.gov.in/services/inference/pipeline';
 
@@ -143,7 +145,9 @@ module.exports = {
   PAYMENT_MODE,
   GOOGLE_MAPS_API_KEY,
   BHASHINI_API_KEY,
+  BHASHINI_INFERENCE_KEY,
   BHASHINI_USER_ID,
+  BHASHINI_UDYAT_API,
   BHASHINI_PIPELINE_ID,
   BHASHINI_API_URL,
   validateConfig

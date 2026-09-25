@@ -1,6 +1,8 @@
 const ProcurementCentre = require('../models/ProcurementCentre');
 const { recommendCentre, calculateDistanceKm } = require('../services/recommendationService');
 const { calculateEstimatedWaitTime } = require('../services/waitTimeService');
+const { getTodayIST } = require('../utils/dateUtils');
+const { resolveCentre, getCentreQueryIds, isSameCentre } = require('../utils/centreUtils');
 
 // In-memory fallback list of realistic procurement centres in Lucknow, UP
 const inMemoryCentres = [
@@ -320,18 +322,7 @@ const getCentreById = async (req, res, next) => {
     const { id } = req.params;
     const { lat, lon } = req.query;
 
-    let centre = null;
-    try {
-      centre = await ProcurementCentre.findById(id)
-        .populate('mandiId', 'name mandiCode category address location')
-        .lean();
-    } catch (dbErr) {
-      centre = inMemoryCentres.find((c) => c._id === id || c.id === id);
-    }
-
-    if (!centre) {
-      centre = inMemoryCentres.find((c) => c._id === id || c.id === id || c.centreCode === id);
-    }
+    let centre = await resolveCentre(id, ProcurementCentre, inMemoryCentres);
 
     if (!centre) {
       return res.status(404).json({
@@ -345,8 +336,8 @@ const getCentreById = async (req, res, next) => {
 
     const userLat = parseFloat(lat) || 23.2000;
     const userLon = parseFloat(lon) || 77.0800;
-    const cLat = centre.location?.coordinates[1] || 23.2000;
-    const cLon = centre.location?.coordinates[0] || 77.0800;
+    const cLat = centre.location?.coordinates?.[1] || 23.2000;
+    const cLon = centre.location?.coordinates?.[0] || 77.0800;
 
     const distanceKm = calculateDistanceKm(userLat, userLon, cLat, cLon);
     const estimatedWaitMinutes = calculateEstimatedWaitTime(centre);
@@ -355,6 +346,7 @@ const getCentreById = async (req, res, next) => {
       success: true,
       data: {
         ...centre,
+        _id: centre._id ? centre._id.toString() : centre.id,
         id: centre._id ? centre._id.toString() : centre.id,
         distanceKm,
         estimatedWaitMinutes,
@@ -454,11 +446,11 @@ const getMyCentreProfile = async (req, res, next) => {
     }
 
     // Compute Today's Operational KPIs
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getTodayIST();
     let todayBookings = [];
     try {
       todayBookings = await Booking.find({
-        centreId: centre._id || centre.id,
+        centreId: { $in: getCentreQueryIds(centre._id || centre.id || centreIdStr) },
         bookingDate: todayStr
       }).lean();
     } catch (bErr) {
@@ -468,8 +460,7 @@ const getMyCentreProfile = async (req, res, next) => {
     if (!todayBookings || todayBookings.length === 0) {
       if (inMemoryBookings) {
         for (const [, b] of inMemoryBookings) {
-          const bCentre = b.centreId ? b.centreId.toString() : null;
-          if (bCentre && (bCentre === centreIdStr || (centreIdStr === 'c1' && bCentre === 'c1'))) {
+          if (isSameCentre(b.centreId, centreIdStr) && (b.bookingDate === todayStr || !b.bookingDate)) {
             todayBookings.push(b);
           }
         }
@@ -962,12 +953,12 @@ const getCentreTodayBookings = async (req, res, next) => {
     }
 
     const centreIdStr = centreId.toString();
-    const queryDate = req.query.date || new Date().toISOString().split('T')[0];
+    const queryDate = req.query.date || getTodayIST();
 
     let bookings = [];
     try {
       bookings = await Booking.find({
-        centreId,
+        centreId: { $in: getCentreQueryIds(centreId) },
         bookingDate: queryDate
       }).populate('farmerId', 'fullName phone villageName district').lean();
     } catch (dbErr) {
@@ -977,11 +968,8 @@ const getCentreTodayBookings = async (req, res, next) => {
     if (!bookings || bookings.length === 0) {
       if (inMemoryBookings) {
         for (const [, b] of inMemoryBookings) {
-          const bCentre = b.centreId ? b.centreId.toString() : null;
-          if (bCentre && (bCentre === centreIdStr || (centreIdStr === 'c1' && bCentre === 'c1'))) {
-            if (b.bookingDate === queryDate || !b.bookingDate) {
-              bookings.push(b);
-            }
+          if (isSameCentre(b.centreId, centreIdStr) && (b.bookingDate === queryDate || !b.bookingDate)) {
+            bookings.push(b);
           }
         }
       }

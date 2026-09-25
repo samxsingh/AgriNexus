@@ -4,6 +4,7 @@ const Procurement = require('../models/Procurement');
 const PaymentStatus = require('../models/PaymentStatus');
 const ProcurementCentre = require('../models/ProcurementCentre');
 const { getTodayIST } = require('../utils/dateUtils');
+const { getCentreQueryIds, isSameCentre } = require('../utils/centreUtils');
 const { logQueueAction } = require('./auditService');
 const { dispatchNotification } = require('./notificationService');
 const { inMemoryQueueEntries, inMemoryBookings } = require('./bookingService');
@@ -35,16 +36,19 @@ const isValidTransition = (currentState, targetState) => {
 const broadcastQueueEvent = (io, centreId, farmerId, eventName, payload) => {
   if (!io) return;
   if (centreId) {
-    io.to(`centre_${centreId}`).emit('queue:updated', payload);
-    io.to(`centre_${centreId}`).emit(eventName, payload);
+    const synonyms = getCentreQueryIds(centreId);
+    synonyms.forEach((syn) => {
+      io.to(`centre_${syn.toString()}`).emit('queue:updated', payload);
+      io.to(`centre_${syn.toString()}`).emit(eventName, payload);
+    });
   }
   if (farmerId) {
     io.to(`farmer_${farmerId}`).emit('queue:updated', payload);
     io.to(`farmer_${farmerId}`).emit(eventName, payload);
   }
   // District Command Centre cross-portal real-time synchronization
-  io.to('admin_global').emit('queue:updated', { ...payload, centreId });
-  io.to('admin_global').emit(eventName, { ...payload, centreId });
+  io.to('admin_global').emit('queue:updated', { ...payload, centreId: centreId?.toString() });
+  io.to('admin_global').emit(eventName, { ...payload, centreId: centreId?.toString() });
 };
 
 /**
@@ -56,7 +60,7 @@ const callNextFarmer = async ({ centreId, queueDate, staffUser, counterId = 'Cou
 
   if (staffUser && staffUser.role !== 'ADMIN') {
     const userCentreId = staffUser.assignedCentreId ? staffUser.assignedCentreId.toString() : '';
-    if (userCentreId && centreId && userCentreId !== centreId.toString()) {
+    if (userCentreId && centreId && !isSameCentre(userCentreId, centreId)) {
       const err = new Error(`Access denied: Staff assigned to centre ${userCentreId} cannot call farmers for centre ${centreId}.`);
       err.statusCode = 403;
       err.code = 'CENTRE_ACCESS_DENIED';
@@ -64,13 +68,7 @@ const callNextFarmer = async ({ centreId, queueDate, staffUser, counterId = 'Cou
     }
   }
 
-  const mongoose = require('mongoose');
-  const centreQuery = [centreId, centreId ? centreId.toString() : 'c1'];
-  if (centreId && mongoose.Types.ObjectId.isValid(centreId.toString())) {
-    try {
-      centreQuery.push(new mongoose.Types.ObjectId(centreId.toString()));
-    } catch (e) {}
-  }
+  const centreQuery = getCentreQueryIds(centreId);
 
   let nextEntry = null;
   try {
@@ -95,7 +93,7 @@ const callNextFarmer = async ({ centreId, queueDate, staffUser, counterId = 'Cou
   } catch (dbErr) {
     // In-memory fallback claim
     for (const [, qe] of inMemoryQueueEntries) {
-      const matchesCentre = centreQuery.includes(qe.centreId) || centreQuery.includes(qe.centreId?.toString());
+      const matchesCentre = isSameCentre(qe.centreId, centreId);
       if (matchesCentre && qe.queueDate === dateStr && qe.state === 'WAITING') {
         qe.state = 'CALLED';
         qe.calledAt = new Date();
@@ -109,7 +107,7 @@ const callNextFarmer = async ({ centreId, queueDate, staffUser, counterId = 'Cou
   if (!nextEntry) {
     // Check in-memory store directly if DB returned null
     for (const [, qe] of inMemoryQueueEntries) {
-      const matchesCentre = centreQuery.includes(qe.centreId) || centreQuery.includes(qe.centreId?.toString());
+      const matchesCentre = isSameCentre(qe.centreId, centreId);
       if (matchesCentre && qe.queueDate === dateStr && qe.state === 'WAITING') {
         qe.state = 'CALLED';
         qe.calledAt = new Date();
@@ -197,7 +195,7 @@ const transitionQueueState = async ({ queueEntryId, targetState, staffUser, coun
   if (staffUser && staffUser.role !== 'ADMIN') {
     const userCentreId = staffUser.assignedCentreId ? staffUser.assignedCentreId.toString() : '';
     const entryCentreId = queueEntry.centreId?._id ? queueEntry.centreId._id.toString() : (queueEntry.centreId ? queueEntry.centreId.toString() : '');
-    if (userCentreId && entryCentreId && userCentreId !== entryCentreId) {
+    if (userCentreId && entryCentreId && !isSameCentre(userCentreId, entryCentreId)) {
       const err = new Error(`Access denied: Staff assigned to centre ${userCentreId} cannot manage queue tokens for centre ${entryCentreId}.`);
       err.statusCode = 403;
       err.code = 'CENTRE_ACCESS_DENIED';
@@ -387,10 +385,14 @@ const transitionQueueState = async ({ queueEntryId, targetState, staffUser, coun
   });
 
   // Socket Broadcast
+  const bId = (queueEntry.bookingId?._id || queueEntry.bookingId)?.toString();
   const broadcastPayload = {
     queueEntryId: queueEntry._id ? queueEntry._id.toString() : queueEntry.id,
+    bookingId: bId,
     tokenNumber: queueEntry.tokenNumber,
     state: targetState,
+    stage: targetState,
+    status: targetState,
     counterId: queueEntry.counterId,
     updatedAt: now,
     farmerName: queueEntry.farmerId?.fullName || 'Farmer'
@@ -466,17 +468,26 @@ const transitionQueueState = async ({ queueEntryId, targetState, staffUser, coun
 const getFarmerQueueStatus = async (farmerId) => {
   let activeEntry = null;
   const activeStates = ['WAITING', 'CALLED', 'ARRIVED', 'VERIFICATION', 'QUALITY_CHECK', 'WEIGHING', 'PROCUREMENT_CONFIRMED', 'PAYMENT_PROCESSING'];
+  const mongoose = require('mongoose');
+  const farmerQuery = [farmerId, farmerId?.toString()];
+  if (farmerId && mongoose.Types.ObjectId.isValid(farmerId.toString())) {
+    try {
+      farmerQuery.push(new mongoose.Types.ObjectId(farmerId.toString()));
+    } catch (e) {}
+  }
+
   try {
     activeEntry = await QueueEntry.findOne({
-      farmerId,
+      farmerId: { $in: farmerQuery },
       state: { $in: activeStates }
     })
-      .populate('centreId', 'name address centreCode')
       .populate('bookingId', 'bookingDate timeWindow cropType estimatedQuantityQuintals')
+      .sort({ createdAt: -1 })
       .lean();
   } catch (err) {
     for (const [, qe] of inMemoryQueueEntries) {
-      if ((qe.farmerId === farmerId || qe.farmerId.toString() === farmerId.toString()) && activeStates.includes(qe.state)) {
+      const qeFarmer = (qe.farmerId?._id || qe.farmerId || '').toString();
+      if (farmerQuery.some((fq) => fq?.toString() === qeFarmer) && activeStates.includes(qe.state)) {
         activeEntry = qe;
         break;
       }
@@ -487,6 +498,18 @@ const getFarmerQueueStatus = async (farmerId) => {
     return null;
   }
 
+  const rawCentreId = activeEntry.centreId?._id || activeEntry.centreId;
+  const ProcurementCentre = require('../models/ProcurementCentre');
+  const { resolveCentre } = require('../utils/centreUtils');
+  const { inMemoryCentres } = require('../controllers/centreController');
+  const centreDoc = await resolveCentre(rawCentreId, ProcurementCentre, inMemoryCentres);
+  activeEntry.centreId = centreDoc || {
+    _id: rawCentreId,
+    name: 'Krishi Seva Procurement Centre — Gomti Nagar',
+    address: 'Vibhuti Khand, Gomti Nagar, Lucknow',
+    centreCode: 'LKO_GOM01'
+  };
+
   const centreId = activeEntry.centreId?._id || activeEntry.centreId;
   const queueDate = activeEntry.queueDate;
 
@@ -495,15 +518,16 @@ const getFarmerQueueStatus = async (farmerId) => {
   let currentlyServingToken = '—';
 
   try {
+    const centreQuery = getCentreQueryIds(centreId);
     peopleAhead = await QueueEntry.countDocuments({
-      centreId,
+      centreId: { $in: centreQuery },
       queueDate,
       state: 'WAITING',
       sequenceNumber: { $lt: activeEntry.sequenceNumber }
     });
 
     const servingEntry = await QueueEntry.findOne({
-      centreId,
+      centreId: { $in: centreQuery },
       queueDate,
       state: { $in: ['CALLED', 'ARRIVED', 'VERIFICATION', 'WEIGHING'] }
     }).sort({ updatedAt: -1 });
@@ -537,13 +561,14 @@ const getFarmerQueueStatus = async (farmerId) => {
  */
 const getCentreQueueStats = async (centreId, dateStr) => {
   const dateQuery = dateStr || getTodayIST();
+  const centreQuery = getCentreQueryIds(centreId);
 
   let entries = [];
   try {
-    entries = await QueueEntry.find({ centreId, queueDate: dateQuery }).lean();
+    entries = await QueueEntry.find({ centreId: { $in: centreQuery }, queueDate: dateQuery }).lean();
   } catch (err) {
     for (const [, qe] of inMemoryQueueEntries) {
-      if ((qe.centreId === centreId || qe.centreId.toString() === centreId.toString()) && qe.queueDate === dateQuery) {
+      if (isSameCentre(qe.centreId, centreId) && qe.queueDate === dateQuery) {
         entries.push(qe);
       }
     }
@@ -566,7 +591,7 @@ const getCentreQueueStats = async (centreId, dateStr) => {
   let estimatedPayableTodayRs = 0;
 
   try {
-    const procs = await Procurement.find({ centreId }).lean();
+    const procs = await Procurement.find({ centreId: { $in: centreQuery } }).lean();
     if (procs && procs.length > 0) {
       for (const p of procs) {
         totalProduceTodayQuintals += Number(p.netWeightQuintals || p.verifiedQuantityQuintals || 0);

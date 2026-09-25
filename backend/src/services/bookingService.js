@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const Slot = require('../models/Slot');
 const ProcurementCentre = require('../models/ProcurementCentre');
@@ -5,6 +6,8 @@ const QueueEntry = require('../models/QueueEntry');
 const User = require('../models/User');
 const { generateTokenNumber } = require('./tokenService');
 const { dispatchNotification } = require('./notificationService');
+const { getTodayIST } = require('../utils/dateUtils');
+const { resolveCentre, resolveCanonicalCentreId, getCentreQueryIds } = require('../utils/centreUtils');
 
 // In-memory fallback stores if MongoDB is offline during test runner execution
 const inMemoryBookings = new Map();
@@ -13,7 +16,7 @@ const inMemoryQueueEntries = new Map();
 
 // Seed realistic operational bookings for today in Lucknow Gomti Nagar Centre (c1)
 const initDemoBookings = () => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayIST();
   const demoBookings = [
     {
       _id: 'bkg_demo_01',
@@ -217,6 +220,12 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
     throw new Error('This time slot is fully booked or closed. Please select another slot.');
   }
 
+  // Prevent bookings on past dates
+  const todayStr = getTodayIST();
+  if (slot.date < todayStr) {
+    throw new Error(`Cannot book a delivery slot for a past date (${slot.date}). Please select today or an upcoming date.`);
+  }
+
   // 2. Dual Capacity Verification (Farmer count AND Quintal capacity limit)
   if (slot.bookedFarmersCount >= slot.maxFarmersAllowed) {
     slot.status = 'FULL';
@@ -228,13 +237,8 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
     throw new Error(`Booking ${reqQty} quintals exceeds slot capacity limit (${slot.maxCapacityQuintals - slot.bookedCapacityQuintals} Qtl remaining).`);
   }
 
-  // 3. Fetch Procurement Centre Code
-  let centre = null;
-  try {
-    centre = await ProcurementCentre.findById(centreId);
-  } catch (err) {
-    // Centre check
-  }
+  // 3. Fetch & Validate Procurement Centre
+  const centre = await resolveCentre(centreId, ProcurementCentre);
 
   if (centre) {
     if (centre.verificationStatus === 'REJECTED' || centre.verificationStatus === 'INACTIVE' || centre.isActive === false) {
@@ -243,18 +247,84 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
   }
 
   const centreCode = centre ? (centre.centreCode || 'LKO_GOM01') : 'LKO_GOM01';
+  const canonicalCentreId = await resolveCanonicalCentreId(centreId, ProcurementCentre);
+  const canonicalFarmerId = (farmerId && mongoose.Types.ObjectId.isValid(farmerId.toString()))
+    ? new mongoose.Types.ObjectId(farmerId.toString())
+    : farmerId;
+
+  // Helper for dual-type MongoDB queries on Mixed fields
+  const toQueryIds = (idVal) => {
+    if (!idVal) return [];
+    const str = idVal.toString();
+    const list = [str];
+    if (mongoose.Types.ObjectId.isValid(str)) {
+      try {
+        list.push(new mongoose.Types.ObjectId(str));
+      } catch (e) {}
+    }
+    return list;
+  };
 
   // 4. Prevent duplicate active booking on the same date for the farmer
   let existingFarmerBooking = null;
+  const terminalStatuses = ['CANCELLED', 'REJECTED', 'NO_SHOW', 'COMPLETED', 'PAYMENT_COMPLETED', 'PAID'];
+  const farmerQuery = toQueryIds(farmerId);
+
   try {
-    existingFarmerBooking = await Booking.findOne({
-      farmerId,
+    const candidateBookings = await Booking.find({
+      farmerId: { $in: farmerQuery },
       bookingDate: slot.date,
-      bookingStatus: 'CONFIRMED'
-    });
+      bookingStatus: { $nin: ['CANCELLED', 'REJECTED', 'COMPLETED'] },
+      status: { $nin: ['CANCELLED', 'REJECTED', 'COMPLETED'] },
+      operationalStatus: { $nin: terminalStatuses }
+    }).lean();
+
+    for (const b of candidateBookings) {
+      const bOp = (b.operationalStatus || '').toUpperCase();
+      const bStatus = (b.bookingStatus || '').toUpperCase();
+      const bSt = (b.status || '').toUpperCase();
+      if (terminalStatuses.includes(bOp) || terminalStatuses.includes(bStatus) || terminalStatuses.includes(bSt)) {
+        continue;
+      }
+
+      // Check if QueueEntry exists and has progressed to a terminal state
+      const bId = b._id || b.id;
+      const qe = await QueueEntry.findOne({ bookingId: { $in: toQueryIds(bId) } }).lean();
+      if (qe) {
+        const qeState = (qe.state || '').toUpperCase();
+        if (terminalStatuses.includes(qeState)) {
+          // Sync booking document in background so it does not falsely block
+          try {
+            await Booking.findByIdAndUpdate(b._id, {
+              $set: {
+                operationalStatus: qeState,
+                bookingStatus: qeState === 'CANCELLED' ? 'CANCELLED' : 'COMPLETED',
+                status: qeState === 'CANCELLED' ? 'CANCELLED' : 'COMPLETED'
+              }
+            });
+          } catch (syncErr) {}
+          continue;
+        }
+      }
+
+      // Confirmed genuine active conflicting booking on this date
+      existingFarmerBooking = b;
+      break;
+    }
   } catch (err) {
     for (const [, b] of inMemoryBookings) {
-      if ((b.farmerId === farmerId || b.farmerId.toString() === farmerId.toString()) && b.bookingDate === slot.date && b.bookingStatus === 'CONFIRMED') {
+      const bFarmerStr = (b.farmerId?._id || b.farmerId || '').toString();
+      const matchesFarmer = farmerQuery.some((fq) => fq.toString() === bFarmerStr);
+      const bOp = (b.operationalStatus || '').toUpperCase();
+      const bStatus = (b.bookingStatus || '').toUpperCase();
+      const bSt = (b.status || '').toUpperCase();
+      if (
+        matchesFarmer &&
+        b.bookingDate === slot.date &&
+        !['CANCELLED', 'REJECTED', 'COMPLETED'].includes(bStatus) &&
+        !['CANCELLED', 'REJECTED', 'COMPLETED'].includes(bSt) &&
+        !terminalStatuses.includes(bOp)
+      ) {
         existingFarmerBooking = b;
         break;
       }
@@ -324,8 +394,8 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
     newBooking = await Booking.create({
       bookingReference,
       tokenNumber,
-      farmerId,
-      centreId,
+      farmerId: canonicalFarmerId,
+      centreId: canonicalCentreId,
       slotId,
       bookingDate: slot.date,
       timeWindow: slot.timeWindow,
@@ -355,8 +425,8 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
       _id: id,
       bookingReference,
       tokenNumber,
-      farmerId,
-      centreId,
+      farmerId: canonicalFarmerId,
+      centreId: canonicalCentreId,
       slotId,
       bookingDate: slot.date,
       timeWindow: slot.timeWindow,
@@ -385,44 +455,45 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
   // 8. Create Initial QueueEntry in state WAITING
   const bookingId = newBooking._id ? newBooking._id.toString() : newBooking.id;
   const isInMemoryBooking = typeof bookingId === 'string' && bookingId.startsWith('bkg_');
+  const canonicalBookingId = (newBooking._id && mongoose.Types.ObjectId.isValid(newBooking._id.toString()))
+    ? new mongoose.Types.ObjectId(newBooking._id.toString())
+    : bookingId;
 
   if (!isInMemoryBooking) {
     try {
-      const qDoc = await QueueEntry.create({
-        bookingId,
-        farmerId,
-        centreId,
-        slotId,
-        tokenNumber,
-        queueDate: slot.date,
-        sequenceNumber,
-        state: 'WAITING'
-      });
+      // Idempotency: reuse existing QueueEntry if present
+      let qDoc = await QueueEntry.findOne({ bookingId: { $in: toQueryIds(bookingId) } });
+      if (!qDoc) {
+        qDoc = await QueueEntry.create({
+          bookingId: canonicalBookingId,
+          farmerId: canonicalFarmerId,
+          centreId: canonicalCentreId,
+          slotId,
+          tokenNumber,
+          queueDate: slot.date,
+          sequenceNumber,
+          state: 'WAITING'
+        });
+      }
       const qId = qDoc._id.toString();
       inMemoryQueueEntries.set(qId, qDoc.toObject ? qDoc.toObject() : qDoc);
     } catch (qErr) {
-      const qId = 'qe_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-      inMemoryQueueEntries.set(qId, {
-        _id: qId,
-        bookingId,
-        farmerId,
-        centreId,
-        slotId,
-        tokenNumber,
-        queueDate: slot.date,
-        sequenceNumber,
-        state: 'WAITING',
-        createdAt: new Date()
-      });
+      console.error(`[QueueEntry Creation Error]: bookingId: ${bookingId}, centreId: ${canonicalCentreId}, error: ${qErr.message}`);
+      // Invariant: Rollback booking if operational QueueEntry cannot be established in DB
+      try {
+        await Booking.findByIdAndDelete(newBooking._id);
+        inMemoryBookings.delete(bookingId);
+      } catch (rbErr) {}
+      throw new Error(`Failed to initialize operational queue entry for booking: ${qErr.message}`);
     }
   } else {
     // If Booking is fallback in-memory, keep QueueEntry strictly in memory to prevent orphan records
     const qId = 'qe_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     inMemoryQueueEntries.set(qId, {
       _id: qId,
-      bookingId,
-      farmerId,
-      centreId,
+      bookingId: canonicalBookingId,
+      farmerId: canonicalFarmerId,
+      centreId: canonicalCentreId,
       slotId,
       tokenNumber,
       queueDate: slot.date,
@@ -434,7 +505,7 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
 
   // 9. Real-Time Socket.IO Synchronization & Non-blocking Notification
   const farmerIdStr = farmerId?.toString ? farmerId.toString() : farmerId;
-  const centreIdStr = centreId?.toString ? centreId.toString() : centreId;
+  const centreIdStr = canonicalCentreId ? canonicalCentreId.toString() : (centreId?.toString ? centreId.toString() : 'c1');
   if (io) {
     const qePayload = {
       bookingId,
@@ -448,7 +519,10 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
       cropType: cropType || 'Wheat',
       quantityQuintals: reqQty
     };
-    io.to(`centre_${centreIdStr}`).emit('queue:updated', qePayload);
+    const centreSynonyms = getCentreQueryIds(canonicalCentreId || centreId);
+    centreSynonyms.forEach((syn) => {
+      io.to(`centre_${syn.toString()}`).emit('queue:updated', qePayload);
+    });
     io.to(`farmer_${farmerIdStr}`).emit('queue:updated', qePayload);
     io.to('admin_global').emit('queue:updated', { ...qePayload, centreId: centreIdStr });
   }

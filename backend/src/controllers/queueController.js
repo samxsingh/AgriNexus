@@ -1,5 +1,6 @@
 const QueueEntry = require('../models/QueueEntry');
 const { getTodayIST } = require('../utils/dateUtils');
+const { getCentreQueryIds, isSameCentre } = require('../utils/centreUtils');
 const {
   callNextFarmer,
   transitionQueueState,
@@ -16,7 +17,7 @@ const getAuthorizedCentreId = (user, requestedCentreId) => {
   }
   if (user.role === 'CENTRE_STAFF') {
     const assigned = user.assignedCentreId ? user.assignedCentreId.toString() : null;
-    if (requestedCentreId && assigned && requestedCentreId.toString() !== assigned) {
+    if (requestedCentreId && assigned && !isSameCentre(assigned, requestedCentreId)) {
       return null; // Explicitly reject unauthorized cross-centre operation attempt
     }
     return user.assignedCentreId || requestedCentreId;
@@ -35,14 +36,7 @@ const getTodayQueue = async (req, res, next) => {
     }
 
     const dateStr = req.query.date || getTodayIST();
-
-    const mongoose = require('mongoose');
-    const centreQuery = [centreId, centreId ? centreId.toString() : 'c1'];
-    if (centreId && mongoose.Types.ObjectId.isValid(centreId.toString())) {
-      try {
-        centreQuery.push(new mongoose.Types.ObjectId(centreId.toString()));
-      } catch (e) {}
-    }
+    const centreQuery = getCentreQueryIds(centreId);
 
     let queue = [];
     try {
@@ -53,7 +47,7 @@ const getTodayQueue = async (req, res, next) => {
         .lean();
     } catch (dbErr) {
       for (const [, qe] of inMemoryQueueEntries) {
-        if ((qe.centreId === centreId || qe.centreId.toString() === centreId.toString()) && qe.queueDate === dateStr) {
+        if (isSameCentre(qe.centreId, centreId) && qe.queueDate === dateStr) {
           queue.push(qe);
         }
       }
@@ -61,7 +55,7 @@ const getTodayQueue = async (req, res, next) => {
 
     if (!queue || queue.length === 0) {
       for (const [, qe] of inMemoryQueueEntries) {
-        if ((qe.centreId === centreId || qe.centreId.toString() === centreId.toString()) && qe.queueDate === dateStr) {
+        if (isSameCentre(qe.centreId, centreId) && qe.queueDate === dateStr) {
           queue.push(qe);
         }
       }

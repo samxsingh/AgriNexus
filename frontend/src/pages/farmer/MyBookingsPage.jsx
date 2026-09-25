@@ -144,12 +144,17 @@ export const MyBookingsPage = () => {
     }
   };
 
+  const todayIST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+
   // Active / Upcoming: Any booking that is CONFIRMED or currently undergoing procurement lifecycle
   const terminalStatuses = ['PAYMENT_COMPLETED', 'COMPLETED', 'CANCELLED', 'REJECTED', 'NO_SHOW'];
   const upcomingBookings = bookings.filter((b) => {
     const op = (b.operationalStatus || '').toUpperCase();
     if (terminalStatuses.includes(op)) return false;
-    return b.bookingStatus === 'CONFIRMED' || !terminalStatuses.includes(b.bookingStatus);
+    if (b.bookingStatus === 'CANCELLED' || b.bookingStatus === 'REJECTED') return false;
+    // If booking date is strictly in the past and still only 'BOOKED' (never checked in), group into history
+    if (b.bookingDate && b.bookingDate < todayIST && op === 'BOOKED') return false;
+    return true;
   });
   const pastBookings = bookings.filter((b) => !upcomingBookings.includes(b));
 
@@ -311,9 +316,11 @@ export const MyBookingsPage = () => {
           />
         ) : (
           <div className="space-y-4">
-            {currentList.map((booking) => (
+            {currentList.map((booking) => {
+              const bId = booking.id || booking._id;
+              return (
               <div
-                key={booking.id}
+                key={bId}
                 className="bg-white rounded-md border-2 border-dark-neutral shadow-brutal p-5 border-l-6 border-l-forest-green transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-brutal-lg"
               >
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-3 border-b-2 border-dark-neutral/10">
@@ -417,10 +424,10 @@ export const MyBookingsPage = () => {
                   </span>
 
                   <div className="flex items-center gap-2">
-                    <Link to={`/farmer/procurement/${booking.id}`}>
-                      <Button variant="outline" size="sm">
+                    <Link to={`/farmer/procurement/${bId}`}>
+                      <Button variant={activeTab === 'UPCOMING' ? 'primary' : 'outline'} size="sm">
                         <FileText className="w-3.5 h-3.5 mr-1" />
-                        <span>{t('farmer.track_status_btn')}</span>
+                        <span>{activeTab === 'UPCOMING' ? t('farmer.manage_booking_btn', 'Manage Booking →') : t('farmer.track_status_btn')}</span>
                       </Button>
                     </Link>
 
@@ -428,7 +435,7 @@ export const MyBookingsPage = () => {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleCancelBooking(booking.id)}
+                        onClick={() => handleCancelBooking(bId)}
                         className="text-red-700 hover:bg-red-50 hover:border-red-600"
                       >
                         <XCircle className="w-4 h-4 mr-1" />
@@ -438,7 +445,8 @@ export const MyBookingsPage = () => {
                   </div>
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         )}
       </main>

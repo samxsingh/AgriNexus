@@ -57,16 +57,9 @@ const getSlots = async (req, res, next) => {
       });
     }
 
-    let centre = null;
-    try {
-      centre = await ProcurementCentre.findById(centreId);
-    } catch (cErr) {
-      // Check in-memory centres
-      const { inMemoryCentres } = require('./centreController');
-      if (inMemoryCentres) {
-        centre = inMemoryCentres.find((c) => c._id === centreId || c.id === centreId || c.centreCode === centreId);
-      }
-    }
+    const { resolveCentre } = require('../utils/centreUtils');
+    const { inMemoryCentres } = require('./centreController');
+    const centre = await resolveCentre(centreId, ProcurementCentre, inMemoryCentres);
 
     if (centre && (centre.isActive === false || centre.verificationStatus === 'INACTIVE')) {
       return res.status(400).json({

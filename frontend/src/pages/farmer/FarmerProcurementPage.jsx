@@ -64,6 +64,8 @@ export const FarmerProcurementPage = () => {
   const [errorMsg, setErrorMsg] = useState(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [liveNotification, setLiveNotification] = useState(null);
+  const [isAdvancing, setIsAdvancing] = useState(false);
+  const [advanceSuccessMsg, setAdvanceSuccessMsg] = useState(null);
 
   const fetchData = useCallback(async (isInitial = false) => {
     if (!bookingId) {
@@ -172,13 +174,44 @@ export const FarmerProcurementPage = () => {
     farmerId,
     onQueueUpdate: (eventData) => {
       console.log('[Farmer Procurement Socket] Real-time event received:', eventData);
-      if (eventData?.stage || eventData?.status) {
-        setLiveNotification(`Real-time update: Your token status is now ${eventData.stage || eventData.status}`);
+      const newSt = eventData?.state || eventData?.stage || eventData?.status;
+      if (newSt) {
+        setLiveNotification(`Real-time update: Your token status is now ${newSt}`);
         setTimeout(() => setLiveNotification(null), 6000);
       }
-      fetchData();
+      fetchData(false);
     }
   });
+
+  const handleAdvanceProgress = async () => {
+    if (isAdvancing || !bookingId) return;
+    setIsAdvancing(true);
+    setAdvanceSuccessMsg(null);
+    try {
+      const res = await apiClient.post(`/bookings/${bookingId}/advance-progress`);
+      if (res.success) {
+        setAdvanceSuccessMsg(res.message || 'Stage advanced successfully.');
+        setTimeout(() => setAdvanceSuccessMsg(null), 5000);
+        await fetchData(false);
+      }
+    } catch (err) {
+      console.warn('[Advance Demo Error]:', err.message);
+    } finally {
+      setIsAdvancing(false);
+    }
+  };
+
+  const handleCancelBooking = async () => {
+    if (!window.confirm(t('farmer.confirm_cancel_prompt', 'Are you sure you want to cancel this procurement slot booking?'))) return;
+    try {
+      const res = await apiClient.post(`/bookings/${bookingId}/cancel`);
+      if (res.success) {
+        navigate('/farmer/bookings');
+      }
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to cancel booking');
+    }
+  };
 
   // Compute canonical operational stage index (0 to 9)
   const getStageFromStatus = () => {
@@ -299,7 +332,7 @@ export const FarmerProcurementPage = () => {
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 animate-page-enter relative z-10">
         {/* Top Back Navigation Bar */}
-        <div className="mb-4">
+        <div className="mb-4 flex items-center justify-between">
           <button
             type="button"
             onClick={() => navigate('/farmer/bookings')}
@@ -308,6 +341,16 @@ export const FarmerProcurementPage = () => {
             <ArrowLeft className="w-4 h-4 text-forest-green" />
             <span>{t('farmer.back_to_bookings', 'Back to Bookings')}</span>
           </button>
+
+          {currentStageIndex <= 1 && (
+            <button
+              type="button"
+              onClick={handleCancelBooking}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 border-2 border-red-800 rounded-xs text-xs font-black uppercase text-red-800 transition-all shadow-[2px_2px_0px_#8B0000] active:translate-x-0.5 active:translate-y-0.5 cursor-pointer"
+            >
+              <span>{t('farmer.cancel_booking_btn', 'Cancel Booking')}</span>
+            </button>
+          )}
         </div>
 
         <PageHeader
@@ -321,17 +364,42 @@ export const FarmerProcurementPage = () => {
           }
         />
 
-        {/* Subtle Demo Environment Simulation Indicators */}
-        <div className="mb-4 px-3.5 py-2 bg-amber-50 border-2 border-amber-400 rounded-xs flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-amber-950 shadow-[2px_2px_0px_#22252A]">
-          <span className="flex items-center gap-1.5">
-            <span>🛡️ Demonstration Mode • Authorized Lucknow District Sandbox</span>
-          </span>
-          <div className="flex items-center gap-2 flex-wrap text-[10px]">
-            <span className="px-2 py-0.5 bg-white border border-amber-400 rounded-xs font-mono">PFMS Simulation: Active</span>
-            <span className="px-2 py-0.5 bg-white border border-amber-400 rounded-xs font-mono">SMS Gateway: Simulated</span>
-            <span className="px-2 py-0.5 bg-white border border-amber-400 rounded-xs font-mono">Digital Weighbridge: Synchronized</span>
+        {/* Actionable Demo Environment Simulation Controls */}
+        <div className="mb-4 px-3.5 py-2.5 bg-amber-50 border-2 border-amber-400 rounded-xs flex flex-wrap items-center justify-between gap-3 text-[11px] font-bold text-amber-950 shadow-[2px_2px_0px_#22252A]">
+          <div className="flex items-center gap-2">
+            <span>🛡️ Demonstration Sandbox</span>
+            <span className="text-[10px] text-amber-800 font-medium">
+              (Manage and advance procurement through all 10 canonical stages)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {currentStageIndex < 9 ? (
+              <button
+                type="button"
+                onClick={handleAdvanceProgress}
+                disabled={isAdvancing}
+                className="inline-flex items-center gap-1.5 px-3 py-1 bg-forest-green hover:bg-forest-green-dark text-white border-2 border-dark-neutral rounded-xs text-[11px] font-black uppercase tracking-wider transition-all shadow-[2px_2px_0px_#22252A] active:translate-x-0.5 active:translate-y-0.5 cursor-pointer disabled:opacity-60"
+              >
+                {isAdvancing ? (
+                  <span>Advancing Stage...</span>
+                ) : (
+                  <span>Advance Stage ({CANONICAL_STAGES[currentStageIndex + 1]?.short || 'Next'}) →</span>
+                )}
+              </button>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 text-emerald-800 border-2 border-emerald-600 rounded-xs font-black text-[10px]">
+                ✓ Full 10-Stage Lifecycle Completed
+              </span>
+            )}
           </div>
         </div>
+
+        {advanceSuccessMsg && (
+          <div className="mb-4 p-3 bg-emerald-50 border-2 border-forest-green text-emerald-900 rounded-xs text-xs font-bold flex items-center gap-2 shadow-brutal-sm animate-fade-in">
+            <span>🚀 {advanceSuccessMsg}</span>
+          </div>
+        )}
 
         {liveNotification && (
           <div className="mb-4 p-3 bg-emerald-100 border-2 border-forest-green text-emerald-900 rounded-xs text-xs font-bold flex items-center gap-2 shadow-brutal-sm animate-fade-in">
