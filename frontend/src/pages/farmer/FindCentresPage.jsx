@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import apiClient from '../../services/apiClient';
+import { getTodayIST, isUpcomingBooking } from '../../utils/formatters';
 import Navbar from '../../components/common/Navbar';
 import PageHeader from '../../components/common/PageHeader';
 import LoadingState from '../../components/common/LoadingState';
@@ -71,10 +72,9 @@ export const FindCentresPage = () => {
   const fetchActiveBooking = async () => {
     try {
       const res = await apiClient.get('/bookings/my');
-      if (res.success && res.data && res.data.length > 0) {
-        const upcoming = res.data.find(
-          (b) => b.bookingStatus === 'CONFIRMED' || b.operationalStatus !== 'COMPLETED'
-        );
+      if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+        const todayStr = getTodayIST();
+        const upcoming = res.data.find((b) => isUpcomingBooking(b, todayStr));
         if (upcoming) setActiveBooking(upcoming);
       }
     } catch (err) {

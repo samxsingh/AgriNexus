@@ -197,7 +197,22 @@ const initDemoBookings = () => {
 
 initDemoBookings();
 
+const inFlightBookingLocks = new Set();
+
+/**
+ * ARCHITECTURAL INVARIANT:
+ * Procurement lifecycle operations can update an existing booking, queue entry,
+ * procurement record, or payment record, but they can NEVER create a new booking.
+ * A new Booking may ONLY be created through the explicit farmer booking workflow.
+ */
 const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQuantityQuintals, io }) => {
+  if (!farmerId) {
+    throw new Error('Explicit farmer authentication required to create a booking.');
+  }
+  if (!slotId) {
+    throw new Error('Explicit delivery slot selection required to create a booking.');
+  }
+
   const reqQty = Number(estimatedQuantityQuintals) || 1;
 
   // 1. Verify Slot Existence
@@ -226,7 +241,15 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
     throw new Error(`Cannot book a delivery slot for a past date (${slot.date}). Please select today or an upcoming date.`);
   }
 
-  // 2. Dual Capacity Verification (Farmer count AND Quintal capacity limit)
+  // Double-Click / Race Condition Protection: In-Flight Lock per farmer and date
+  const lockKey = `${(farmerId?._id || farmerId || '').toString()}_${slot.date}`;
+  if (inFlightBookingLocks.has(lockKey)) {
+    throw new Error('A booking request for this date is currently being processed. Please wait a moment.');
+  }
+  inFlightBookingLocks.add(lockKey);
+
+  try {
+    // 2. Dual Capacity Verification (Farmer count AND Quintal capacity limit)
   if (slot.bookedFarmersCount >= slot.maxFarmersAllowed) {
     slot.status = 'FULL';
     if (slot.save) await slot.save();
@@ -547,6 +570,9 @@ const createBooking = async ({ farmerId, centreId, slotId, cropType, estimatedQu
   }
 
   return newBooking;
+  } finally {
+    inFlightBookingLocks.delete(lockKey);
+  }
 };
 
 module.exports = {

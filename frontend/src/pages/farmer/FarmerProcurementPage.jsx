@@ -33,7 +33,8 @@ import {
   RefreshCw,
   SearchX,
   Ticket,
-  Bell
+  Bell,
+  PlusCircle
 } from 'lucide-react';
 
 // Canonical 10-Stage Procurement Lifecycle
@@ -692,16 +693,32 @@ export const FarmerProcurementPage = () => {
                   </div>
 
                   {currentStageIndex >= 7 ? (
-                    <Button
-                      variant="primary"
-                      size="md"
-                      fullWidth
-                      onClick={() => setShowReceiptModal(true)}
-                      className="bg-forest-green hover:bg-forest-green-dark text-white font-black shadow-brutal-sm cursor-pointer"
-                    >
-                      <FileText className="w-4 h-4 mr-2" />
-                      <span>{t('farmer.view_digital_receipt', 'View Official Digital Receipt')}</span>
-                    </Button>
+                    <div className="space-y-2">
+                      <Button
+                        variant="primary"
+                        size="md"
+                        fullWidth
+                        onClick={() => setShowReceiptModal(true)}
+                        className="bg-forest-green hover:bg-forest-green-dark text-white font-black shadow-brutal-sm cursor-pointer"
+                      >
+                        <FileText className="w-4 h-4 mr-2" />
+                        <span>{t('farmer.view_digital_receipt', 'View Official Digital Receipt')}</span>
+                      </Button>
+
+                      {currentStageIndex === 9 && (
+                        <Link to="/farmer/book-slot" className="block w-full">
+                          <Button
+                            variant="outline"
+                            size="md"
+                            fullWidth
+                            className="bg-wheat-accent/40 border-2 border-dark-neutral font-black hover:bg-wheat-accent text-dark-neutral"
+                          >
+                            <PlusCircle className="w-4 h-4 mr-2 text-forest-green" />
+                            <span>{t('farmer.btn_book_another_slot', 'Book Another Delivery Slot')}</span>
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
                   ) : (
                     <div className="space-y-1.5 pt-1">
                       <Button

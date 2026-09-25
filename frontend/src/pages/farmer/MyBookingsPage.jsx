@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import apiClient from '../../services/apiClient';
 import { useSocketQueue } from '../../hooks/useSocketQueue';
 import { useAuth } from '../../contexts/AuthContext';
+import { getTodayIST, normalizeBookingDate, isUpcomingBooking } from '../../utils/formatters';
 import Navbar from '../../components/common/Navbar';
 import PageHeader from '../../components/common/PageHeader';
 import Card from '../../components/common/Card';
@@ -72,27 +73,36 @@ const getBookingStageIndex = (operationalStatus, bookingStatus) => {
 export const MyBookingsPage = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const operationalStages = getOperationalStages(t);
 
   const [bookings, setBookings] = useState([]);
   const [activeTab, setActiveTab] = useState('UPCOMING'); // 'UPCOMING' | 'HISTORY'
   const [queueStatus, setQueueStatus] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  // Fetch bookings
-  const fetchBookings = async () => {
-    setIsLoading(true);
-    setErrorMsg(null);
+  // Fetch bookings - silent mode preserves currently rendered cards without unmounting
+  const fetchBookings = async (silent = false) => {
+    if (!silent) {
+      setIsInitialLoading(true);
+      setErrorMsg(null);
+    } else {
+      setIsRefreshing(true);
+    }
     try {
       const res = await apiClient.get('/bookings/my');
       if (res.success) {
         setBookings(res.data || []);
       }
     } catch (err) {
-      setErrorMsg(err.message || 'Failed to load bookings.');
+      if (!silent) {
+        setErrorMsg(err.message || 'Failed to load bookings.');
+      }
     } finally {
-      setIsLoading(false);
+      setIsInitialLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -110,53 +120,81 @@ export const MyBookingsPage = () => {
     }
   };
 
+  // One initial load on mount
   useEffect(() => {
-    fetchBookings();
-    fetchQueueStatus();
+    let isMounted = true;
+    (async () => {
+      await Promise.allSettled([fetchBookings(false), fetchQueueStatus()]);
+    })();
 
+    // Gentle fallback poll (every 20s) only when page is visible, using silent background refresh
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        fetchBookings();
+      if (document.visibilityState === 'visible' && isMounted) {
+        fetchBookings(true);
         fetchQueueStatus();
       }
-    }, 4000);
+    }, 20000);
 
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const farmerUserId = user?._id || user?.id;
   const { isConnected } = useSocketQueue({
     farmerId: farmerUserId,
     onQueueUpdate: () => {
-      fetchBookings();
+      // Real-time update: refresh silently without unmounting or flickering cards
+      fetchBookings(true);
       fetchQueueStatus();
     }
   });
 
   const handleCancelBooking = async (bookingId) => {
-    if (!window.confirm(t('farmer.confirm_cancel_prompt'))) return;
+    if (!window.confirm(t('farmer.confirm_cancel_prompt', 'Are you sure you want to cancel this booking?'))) return;
     try {
       await apiClient.patch(`/bookings/${bookingId}/cancel`);
-      fetchBookings();
+      fetchBookings(true);
       fetchQueueStatus();
     } catch (err) {
-      alert(err.message || 'Failed to cancel booking.');
+      setErrorMsg(err.message || 'Failed to cancel booking.');
     }
   };
 
-  const todayIST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+  const todayIST = getTodayIST();
+  const currentFarmerId = (user?._id || user?.id || '').toString();
 
-  // Active / Upcoming: Any booking that is CONFIRMED or currently undergoing procurement lifecycle
-  const terminalStatuses = ['PAYMENT_COMPLETED', 'COMPLETED', 'CANCELLED', 'REJECTED', 'NO_SHOW'];
-  const upcomingBookings = bookings.filter((b) => {
-    const op = (b.operationalStatus || '').toUpperCase();
-    if (terminalStatuses.includes(op)) return false;
-    if (b.bookingStatus === 'CANCELLED' || b.bookingStatus === 'REJECTED') return false;
-    // If booking date is strictly in the past and still only 'BOOKED' (never checked in), group into history
-    if (b.bookingDate && b.bookingDate < todayIST && op === 'BOOKED') return false;
+  // Defensive presentation guard: ensure bookings belong to current authenticated farmer
+  const farmerOwnedBookings = bookings.filter((b) => {
+    const bFarmer = (b.farmerId?._id || b.farmerId?.id || b.farmerId || '').toString();
+    if (bFarmer && currentFarmerId && bFarmer !== currentFarmerId) {
+      return false;
+    }
     return true;
   });
-  const pastBookings = bookings.filter((b) => !upcomingBookings.includes(b));
+
+  // Upcoming: Genuinely future/today eligible bookings (date >= todayIST and not terminal)
+  const upcomingBookings = farmerOwnedBookings
+    .filter((b) => isUpcomingBooking(b, todayIST))
+    .sort((a, b) => {
+      const dateA = normalizeBookingDate(a.bookingDate);
+      const dateB = normalizeBookingDate(b.bookingDate);
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+      return (a.slot?.startTime || a.timeWindow || '').localeCompare(b.slot?.startTime || b.timeWindow || '');
+    });
+
+  // History: Past bookings (date < todayIST) OR terminal appointments
+  const pastBookings = farmerOwnedBookings
+    .filter((b) => !isUpcomingBooking(b, todayIST))
+    .sort((a, b) => {
+      const dateA = normalizeBookingDate(a.bookingDate);
+      const dateB = normalizeBookingDate(b.bookingDate);
+      if (dateA !== dateB) return dateB.localeCompare(dateA);
+      const timeA = new Date(a.createdAt || 0).getTime();
+      const timeB = new Date(b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
 
   const currentList = activeTab === 'UPCOMING' ? upcomingBookings : pastBookings;
 
@@ -173,6 +211,12 @@ export const MyBookingsPage = () => {
           subtitle={t('farmer.my_bookings_subtitle')}
           actions={
             <div className="flex items-center gap-3">
+              {isRefreshing && (
+                <span className="text-[11px] font-bold text-dark-neutral-muted flex items-center gap-1.5 animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-forest-green"></span>
+                  <span>{t('common.updating', 'Updating...')}</span>
+                </span>
+              )}
               <Badge
                 variant={isConnected ? 'success' : 'warning'}
                 icon={Radio}
@@ -298,9 +342,9 @@ export const MyBookingsPage = () => {
           </button>
         </div>
 
-        {isLoading ? (
+        {isInitialLoading && bookings.length === 0 ? (
           <LoadingState message={t('common.loading')} />
-        ) : errorMsg ? (
+        ) : errorMsg && bookings.length === 0 ? (
           <Alert type="error">{errorMsg}</Alert>
         ) : currentList.length === 0 ? (
           <EmptyState
@@ -312,7 +356,7 @@ export const MyBookingsPage = () => {
                 : t('farmer.no_history_desc')
             }
             actionLabel={activeTab === 'UPCOMING' ? t('farmer.action_book_slot') : undefined}
-            onAction={activeTab === 'UPCOMING' ? () => (window.location.href = '/farmer/find-centres') : undefined}
+            onAction={activeTab === 'UPCOMING' ? () => navigate('/farmer/find-centres') : undefined}
           />
         ) : (
           <div className="space-y-4">

@@ -228,11 +228,15 @@ export const StaffDashboardPage = () => {
     }
   };
 
-  // 6. Open farmer drawer
-  const handleSelectFarmer = (farmer) => {
+  // 6. Open / Close farmer drawer
+  const handleSelectFarmer = useCallback((farmer) => {
     setDrawerFarmer(farmer);
     setShowDrawer(true);
-  };
+  }, []);
+
+  const handleCloseDrawer = useCallback(() => {
+    setShowDrawer(false);
+  }, []);
 
   // 7. Open Workspace with specified farmer
   const handleOpenInWorkspace = (farmer) => {
@@ -908,12 +912,15 @@ export const StaffDashboardPage = () => {
           />
         )}
 
-        {/* Side Drawer: Detailed Farmer Journey & Dossier */}
+        {/* Side Drawer: Detailed Farmer Journey, Dossier & Viewport Workspace */}
         <FarmerDetailDrawer
           farmerEntry={drawerFarmer}
           isOpen={showDrawer}
-          onClose={() => setShowDrawer(false)}
+          onClose={handleCloseDrawer}
           onOpenInWorkspace={handleOpenInWorkspace}
+          onAdvanceState={handleAdvanceState}
+          isProcessing={isAdvancingState}
+          onViewReceipt={handleViewReceipt}
         />
 
         {/* Digital Receipt Modal */}

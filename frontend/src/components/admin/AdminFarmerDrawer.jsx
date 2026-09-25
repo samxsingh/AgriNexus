@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, User, Phone, Shield, MapPin, Calendar, Clock, Sprout, Scale, Building2, CheckCircle2, Circle } from 'lucide-react';
 import Badge from '../common/Badge';
@@ -6,6 +6,16 @@ import { getLocalizedStage, getLocalizedCrop } from '../../utils/formatters';
 
 export const AdminFarmerDrawer = ({ farmer, onClose }) => {
   const { t } = useTranslation();
+
+  useEffect(() => {
+    if (!farmer) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [farmer, onClose]);
+
   if (!farmer) return null;
 
   const STAGES = [
@@ -26,7 +36,12 @@ export const AdminFarmerDrawer = ({ farmer, onClose }) => {
   const activeIdx = currentIndex !== -1 ? currentIndex : 1;
 
   return (
-    <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 overflow-hidden bg-black/50 backdrop-blur-xs flex justify-end animate-fade-in">
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
+      className="fixed inset-0 z-50 overflow-hidden bg-black/50 backdrop-blur-xs flex justify-end animate-fade-in"
+    >
       <div className="w-full max-w-lg bg-white h-full shadow-2xl border-l-3 border-dark-neutral flex flex-col justify-between animate-slide-left overflow-y-auto">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b-2 border-dark-neutral bg-warm-ivory flex items-start justify-between sticky top-0 z-10">

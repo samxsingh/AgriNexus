@@ -46,18 +46,22 @@ function getTodayIST() {
   }).format(new Date());
 }
 
+const TestIsolationRegistry = require('./test-helpers/testIsolation');
+
 async function runTest() {
+  const registry = new TestIsolationRegistry('New Farmer Queue Flow');
   console.log('========================================================================');
-  console.log('🌾 E2E & REGRESSION AUDIT: BOOKING HISTORY, SAME-DAY & QUEUE INTEGRITY');
+  console.log(`🌾 E2E & REGRESSION AUDIT: BOOKING HISTORY, SAME-DAY & QUEUE INTEGRITY (Run ID: ${registry.runId})`);
   console.log('========================================================================\n');
 
   const todayIST = getTodayIST();
   console.log(`[Context] Operational Date IST: ${todayIST}`);
 
-  // -------------------------------------------------------------------------
-  // TEST A: Existing booking visibility for historical farmer (Ramesh Patel)
-  // -------------------------------------------------------------------------
-  console.log('\n[TEST A] Existing Farmer Booking History Visibility (Ramesh Patel)...');
+  try {
+    // -------------------------------------------------------------------------
+    // TEST A: Existing booking visibility for historical farmer (Ramesh Patel)
+    // -------------------------------------------------------------------------
+    console.log('\n[TEST A] Existing Farmer Booking History Visibility (Ramesh Patel)...');
   const demoFarmerLogin = await makeRequest('/api/auth/login', 'POST', {
     phone: '9876543210',
     password: 'password123'
@@ -94,16 +98,7 @@ async function runTest() {
   // TEST B: Register new farmer and create 1st booking
   // -------------------------------------------------------------------------
   console.log('\n[TEST B] Registering Fresh Farmer and Creating 1st Booking...');
-  const randSuffix = Math.floor(10000000 + Math.random() * 90000000);
-  const newPhone = `98${randSuffix}`;
-  const registerPayload = {
-    phone: newPhone,
-    password: 'FarmerPassword123!',
-    fullName: `Kisan E2E Verify ${randSuffix}`,
-    villageName: 'Vikas Nagar Gram',
-    district: 'Lucknow',
-    state: 'Uttar Pradesh'
-  };
+  const registerPayload = registry.getTestFarmerDetails('Queue Flow Farmer');
 
   const regRes = await makeRequest('/api/auth/register', 'POST', registerPayload);
   if (regRes.status !== 201 || !regRes.body.data?.token) {
@@ -111,6 +106,7 @@ async function runTest() {
   }
   const newFarmerToken = regRes.body.data.token;
   const newFarmerId = regRes.body.data.user._id || regRes.body.data.user.id;
+  registry.registerUser(newFarmerId);
   console.log(`   ✔ Farmer registered! ID: ${newFarmerId}, Name: ${regRes.body.data.user.fullName}`);
 
   // Fetch slots for today using centre alias 'c1'
@@ -136,6 +132,7 @@ async function runTest() {
   }
   const booking1 = book1Res.body.data.booking;
   const booking1Id = booking1._id || booking1.id;
+  registry.registerBooking(booking1Id);
   const token1 = booking1.tokenNumber;
   console.log(`   ✔ Booking 1 created! Token: ${token1}, ID: ${booking1Id}`);
 
@@ -178,6 +175,7 @@ async function runTest() {
 
   // Progress Booking 1 from WAITING -> CALLED -> ARRIVED -> VERIFICATION -> WEIGHING -> COMPLETED
   const qEntryId = matchedQ._id || matchedQ.id;
+  registry.registerQueueEntry(qEntryId);
   for (const nextState of ['CALLED', 'ARRIVED', 'VERIFICATION', 'WEIGHING', 'COMPLETED']) {
     const transRes = await makeRequest(`/api/queue/${qEntryId}/transition`, 'POST', {
       targetState: nextState,
@@ -204,6 +202,7 @@ async function runTest() {
   }
   const booking2 = book2Res.body.data.booking;
   const booking2Id = booking2._id || booking2.id;
+  registry.registerBooking(booking2Id);
   const token2 = booking2.tokenNumber;
   console.log(`   ✔ Same-day rebooking SUCCEEDED! New Token: ${token2}, ID: ${booking2Id}`);
 
@@ -238,6 +237,9 @@ async function runTest() {
   console.log('\n========================================================================');
   console.log('🎉 ALL 6 REGRESSION AUDIT TESTS (TESTS A-F) PASSED WITH 100% SUCCESS!');
   console.log('========================================================================\n');
+  } finally {
+    await registry.teardown();
+  }
 }
 
 runTest().catch((err) => {

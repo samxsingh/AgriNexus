@@ -4,12 +4,15 @@ const { getTodayIST, formatISTDateTime, calculateSlaHours } = require('./src/uti
 const { getMspRateForCrop, MSP_POLICY_RATES } = require('./src/config/policyRates');
 const { dispatchNotification } = require('./src/services/notificationService');
 
+const TestIsolationRegistry = require('./test-helpers/testIsolation');
+
 const server = http.createServer(app);
 const PORT = 5098;
 
 const runCoreLifecycleTests = async () => {
+  const registry = new TestIsolationRegistry('Core Lifecycle');
   server.listen(PORT, async () => {
-    console.log(`[Test Suite] Running AgriNexus Consolidated Core Lifecycle Test Battery on port ${PORT}...`);
+    console.log(`[Test Suite] Running AgriNexus Consolidated Core Lifecycle Test Battery on port ${PORT}... (Run ID: ${registry.runId})`);
 
     const makeRequest = (path, method = 'GET', body = null, token = null) => {
       return new Promise((resolve, reject) => {
@@ -92,16 +95,11 @@ const runCoreLifecycleTests = async () => {
       });
       const staffToken = staffLogin.body.data?.token;
 
-      const testPhone = '987' + Math.floor(1000000 + Math.random() * 9000000);
-      const farmerReg = await makeRequest('/api/auth/register', 'POST', {
-        fullName: 'Lifecycle Farmer',
-        phone: testPhone,
-        password: 'password123',
-        district: 'Lucknow',
-        state: 'Uttar Pradesh',
-        villageName: 'Chinhat'
-      });
+      const farmerPayload = registry.getTestFarmerDetails('Core Farmer');
+      const farmerReg = await makeRequest('/api/auth/register', 'POST', farmerPayload);
       const farmerToken = farmerReg.body.data?.token;
+      const createdFarmerId = farmerReg.body.data?.user?._id || farmerReg.body.data?.user?.id;
+      registry.registerUser(createdFarmerId);
 
       assertCheck('Auth Tokens Initialized (Admin, Staff, Farmer)', !!(adminToken && staffToken && farmerToken));
 
@@ -139,6 +137,7 @@ const runCoreLifecycleTests = async () => {
       }, farmerToken);
       const booking = bookingRes.body.data?.booking;
       const bookingId = booking?._id || booking?.id;
+      if (bookingId) registry.registerBooking(bookingId);
       const tokenNumber = booking?.tokenNumber;
       assertCheck('Booking & Token Creation', bookingRes.status === 201 && !!tokenNumber && !!bookingId, `Token: ${tokenNumber}`);
 
@@ -153,6 +152,7 @@ const runCoreLifecycleTests = async () => {
         return bId === bookingId;
       }) || queueRes.body.data[0];
       const queueEntryId = queueEntry.id || queueEntry._id;
+      if (queueEntryId) registry.registerQueueEntry(queueEntryId);
 
       // Concurrency check on Call Next
       const concurrentCalls = await Promise.all([
@@ -263,11 +263,12 @@ const runCoreLifecycleTests = async () => {
       console.log('=======================================================');
       console.log(`🎉 ALL ${passedCount}/${totalCount} CONSOLIDATED CORE LIFECYCLE TESTS PASSED!`);
       console.log('=======================================================');
-
-      server.close(() => process.exit(0));
     } catch (err) {
       console.error('❌ Core Lifecycle Test Suite Failed:', err);
-      server.close(() => process.exit(1));
+      process.exitCode = 1;
+    } finally {
+      await registry.teardown();
+      server.close(() => process.exit(process.exitCode || 0));
     }
   });
 };

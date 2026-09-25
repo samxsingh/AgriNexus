@@ -34,22 +34,19 @@ const makeRequest = (path, method = 'GET', body = null, token = null) => {
   });
 };
 
-const runSmokeTest = async () => {
-  console.log(`[Smoke Test] Running Live System Smoke Test on http://localhost:${PORT}...`);
+const TestIsolationRegistry = require('./test-helpers/testIsolation');
 
-  const ts = Date.now().toString().slice(-6);
+const runSmokeTest = async () => {
+  const registry = new TestIsolationRegistry('Smoke Test');
+  console.log(`[Smoke Test] Running Live System Smoke Test on http://localhost:${PORT}... (Run ID: ${registry.runId})`);
 
   try {
     // 1. Farmer Registration & Login
-    const farmerAuth = await makeRequest('/api/auth/register', 'POST', {
-      fullName: 'Vikram Patel',
-      phone: `98${ts}11`,
-      password: 'password123',
-      state: 'Madhya Pradesh',
-      district: 'Sehore',
-      villageName: 'Shyampur'
-    });
+    const testFarmerData = registry.getTestFarmerDetails('Smoke Farmer');
+    const farmerAuth = await makeRequest('/api/auth/register', 'POST', testFarmerData);
     const farmerToken = farmerAuth.body.data?.token;
+    const createdFarmerId = farmerAuth.body.data?.user?._id || farmerAuth.body.data?.user?.id;
+    registry.registerUser(createdFarmerId);
     console.log('1. Farmer Registered & Authenticated:', farmerToken ? '✔ PASSED' : '❌ FAILED');
 
     // 2. Staff Authentication & Centre Identification
@@ -77,6 +74,7 @@ const runSmokeTest = async () => {
     }, farmerToken);
     const booking = bookingRes.body.data?.booking;
     const bookingId = booking?.id || booking?._id;
+    registry.registerBooking(bookingId);
     console.log('4. Slot Booked & Token Generated:', booking?.tokenNumber ? `✔ PASSED (${booking.tokenNumber})` : '❌ FAILED');
 
     // 4. Staff CALL NEXT Execution
@@ -85,7 +83,9 @@ const runSmokeTest = async () => {
       date: todayStr,
       counterId: 'Counter 1'
     }, staffToken);
-    const calledToken = callNextRes.body.data?.queueEntry?.tokenNumber;
+    const qe = callNextRes.body.data?.queueEntry;
+    const calledToken = qe?.tokenNumber;
+    if (qe?._id || qe?.id) registry.registerQueueEntry(qe._id || qe.id);
     console.log('5. Staff CALL NEXT Execution:', calledToken ? `✔ PASSED (Called ${calledToken})` : `❌ FAILED (Status: ${callNextRes.status}, Body: ${JSON.stringify(callNextRes.body)})`);
 
     // 5. Produce Quality Inspection & Net Weighing
@@ -127,10 +127,11 @@ const runSmokeTest = async () => {
     console.log('=======================================================');
     console.log('🎉 LIVE END-TO-END DEMO SMOKE TEST PASSED 100% CLEANLY!');
     console.log('=======================================================');
-    process.exit(0);
   } catch (err) {
     console.error('❌ Smoke test failed:', err);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await registry.teardown();
   }
 };
 

@@ -6,6 +6,8 @@
  * insecure defaults or misconfigurations on Render or cloud hosting environments.
  */
 
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 require('dotenv').config();
 
 const NODE_ENV = process.env.NODE_ENV || 'development';

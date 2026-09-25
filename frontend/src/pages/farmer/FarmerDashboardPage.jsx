@@ -14,7 +14,7 @@ import GoogleCentreMap from '../../components/farmer/GoogleCentreMap';
 import CentreDetailsPanel from '../../components/farmer/CentreDetailsPanel';
 import ProgressLadder from '../../components/common/ProgressLadder';
 import AgriculturalVisualBackground from '../../components/public/AgriculturalVisualBackground';
-import { getLocalizedStage, getLocalizedCrop } from '../../utils/formatters';
+import { getLocalizedStage, getLocalizedCrop, getTodayIST, normalizeBookingDate, TERMINAL_BOOKING_STATUSES } from '../../utils/formatters';
 import {
   Calendar,
   MapPin,
@@ -69,20 +69,44 @@ export const FarmerDashboardPage = () => {
     try {
       const res = await apiClient.get('/bookings/my');
       if (res.success && res.data && res.data.length > 0) {
+        const todayStr = getTodayIST();
+        const currentFarmerId = (user?._id || user?.id || '').toString();
+        
+        // A booking is eligible for the active procurement journey only if:
+        // 1. It belongs to the authenticated farmer
+        // 2. Its scheduled delivery date is today or in the future
+        // 3. It is not in any terminal or settled status
+        const eligibleBookings = res.data.filter((b) => {
+          const bFarmer = (b.farmerId?._id || b.farmerId?.id || b.farmerId || '').toString();
+          if (bFarmer && currentFarmerId && bFarmer !== currentFarmerId) {
+            return false;
+          }
+          const bDate = normalizeBookingDate(b.bookingDate);
+          const opStatus = (b.operationalStatus || '').toUpperCase();
+          const bkStatus = (b.bookingStatus || '').toUpperCase();
+          const stStatus = (b.status || '').toUpperCase();
+          return (
+            bDate >= todayStr &&
+            !TERMINAL_BOOKING_STATUSES.includes(opStatus) &&
+            !TERMINAL_BOOKING_STATUSES.includes(bkStatus) &&
+            !TERMINAL_BOOKING_STATUSES.includes(stStatus)
+          );
+        });
+
         // Priority 1: Any booking currently undergoing live centre operations
-        const inProgress = res.data.find((b) =>
+        const inProgress = eligibleBookings.find((b) =>
           ['WAITING', 'CALLED', 'ARRIVED', 'VERIFICATION', 'QUALITY_CHECK', 'WEIGHING', 'PROCUREMENT_CONFIRMED', 'PAYMENT_PROCESSING'].includes(
             (b.operationalStatus || '').toUpperCase()
           )
         );
 
         // Priority 2: Any upcoming booking with confirmed slot
-        const upcomingConfirmed = res.data.find(
-          (b) => b.bookingStatus === 'CONFIRMED' && !['COMPLETED', 'CANCELLED', 'REJECTED'].includes(b.operationalStatus)
+        const upcomingConfirmed = eligibleBookings.find(
+          (b) => (b.bookingStatus === 'CONFIRMED' || (b.operationalStatus || '').toUpperCase() === 'BOOKED')
         );
 
-        // Priority 3: Fall back to most recent booking (e.g. newly completed or initial booking)
-        const active = inProgress || upcomingConfirmed || res.data[0];
+        // Only genuinely active or upcoming bookings represent an active procurement journey
+        const active = inProgress || upcomingConfirmed;
         setActiveBooking(active || null);
       } else {
         setActiveBooking(null);

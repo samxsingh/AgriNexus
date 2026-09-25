@@ -71,3 +71,77 @@ export const getMspRateForCrop = (cropType) => {
   }
 };
 
+/**
+ * Canonical current calendar date in Indian Standard Time (IST / Asia-Kolkata)
+ * Returns 'YYYY-MM-DD'
+ */
+export const getTodayIST = () => {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+};
+
+/**
+ * Normalizes any date value (YYYY-MM-DD string, ISO string, Date object)
+ * into a canonical 'YYYY-MM-DD' string in Asia/Kolkata timezone.
+ */
+export const normalizeBookingDate = (dateVal) => {
+  if (!dateVal) return '';
+  if (typeof dateVal === 'string') {
+    const trimmed = dateVal.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+    }
+    return trimmed.slice(0, 10);
+  }
+  if (dateVal instanceof Date && !isNaN(dateVal.getTime())) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(dateVal);
+  }
+  return '';
+};
+
+/**
+ * Terminal statuses that represent completed, canceled, or settled appointments
+ */
+export const TERMINAL_BOOKING_STATUSES = [
+  'COMPLETED',
+  'CANCELLED',
+  'REJECTED',
+  'PAYMENT_COMPLETED',
+  'PAID',
+  'NO_SHOW'
+];
+
+/**
+ * Classifies a booking as UPCOMING vs HISTORY.
+ * 
+ * Invariants:
+ * 1. An upcoming booking MUST have a bookingDate on or after today in IST (bDate >= todayStr).
+ * 2. Any booking with bookingDate < todayStr MUST be classified as HISTORY, regardless of stale status
+ *    (e.g., BOOKED, WAITING, CONFIRMED, CALLED, etc.).
+ * 3. Any booking in a terminal status MUST be classified as HISTORY.
+ */
+export const isUpcomingBooking = (booking, todayStr = getTodayIST()) => {
+  if (!booking) return false;
+  const bDate = normalizeBookingDate(booking.bookingDate);
+  if (!bDate || bDate < todayStr) {
+    return false;
+  }
+  const op = (booking.operationalStatus || '').toUpperCase();
+  const bk = (booking.bookingStatus || '').toUpperCase();
+  const st = (booking.status || '').toUpperCase();
+
+  if (
+    TERMINAL_BOOKING_STATUSES.includes(op) ||
+    TERMINAL_BOOKING_STATUSES.includes(bk) ||
+    TERMINAL_BOOKING_STATUSES.includes(st)
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
+

@@ -3,13 +3,15 @@ const http = require('http');
 const bcrypt = require('bcryptjs');
 const User = require('./src/models/User');
 const { inMemoryUsers } = require('./src/middleware/authMiddleware');
+const TestIsolationRegistry = require('./test-helpers/testIsolation');
 
 const server = http.createServer(app);
 const PORT = 5091;
 
 const runTests = async () => {
+  const registry = new TestIsolationRegistry('Centre Verification');
   server.listen(PORT, async () => {
-    console.log(`[Test Suite] Running Complete Staff & Admin Email-Based Authentication Tests on port ${PORT}...`);
+    console.log(`[Test Suite] Running Complete Staff & Admin Email-Based Authentication Tests on port ${PORT}... (Run ID: ${registry.runId})`);
 
     const makeRequest = (path, method = 'GET', body = null, token = null) => {
       return new Promise((resolve, reject) => {
@@ -53,17 +55,11 @@ const runTests = async () => {
       console.log('1. Farmer mobile login still works:', farmerLogin.status === 200 && farmerLogin.body.data.user.role === 'FARMER' ? '✔ PASSED' : '❌ FAILED');
 
       // 2. Farmer registration still works
-      const farmerReg = await makeRequest('/api/auth/register', 'POST', {
-        fullName: 'Balram Singh',
-        phone: '9876543299',
-        password: 'password123',
-        district: 'Sehore',
-        state: 'Madhya Pradesh',
-        stateCode: 'MP',
-        districtCode: 'MP_SEH',
-        localityCode: 'MP_SEH_01'
-      });
-      console.log('2. Farmer registration still works:', farmerReg.status === 201 && farmerReg.body.data.user.phone === '9876543299' ? '✔ PASSED' : '❌ FAILED');
+      const farmerData = registry.getTestFarmerDetails('Centre Verify Farmer');
+      const farmerReg = await makeRequest('/api/auth/register', 'POST', farmerData);
+      const createdFarmerId = farmerReg.body.data?.user?._id || farmerReg.body.data?.user?.id;
+      if (createdFarmerId) registry.registerUser(createdFarmerId);
+      console.log('2. Farmer registration still works:', farmerReg.status === 201 && createdFarmerId ? '✔ PASSED' : '❌ FAILED');
 
       // 3. Staff registration accepts valid email
       const staffReg = await makeRequest('/api/staff/applications', 'POST', {
@@ -92,6 +88,7 @@ const runTests = async () => {
         ]
       });
       const appId = staffReg.body?.data?.applicationId;
+      if (appId) registry.registerStaffApplication(appId);
       console.log('3. Staff registration accepts valid email:', staffReg.status === 201 && appId ? `✔ PASSED (${appId})` : '❌ FAILED');
 
       // 4. Duplicate staff email is rejected
@@ -231,6 +228,7 @@ const runTests = async () => {
         documentsMetadata: [{ docType: 'CENTRE_REGISTRATION', docName: 'Reg', originalFileName: 'reg.pdf' }]
       });
       const appId2 = app2Reg.body?.data?.applicationId;
+      if (appId2) registry.registerStaffApplication(appId2);
 
       const rejectRes = await makeRequest(`/api/admin/staff-applications/${appId2}/reject`, 'POST', {
         rejectionReason: 'Invalid APMC authorization letter.'
@@ -281,12 +279,12 @@ const runTests = async () => {
       console.log('=======================================================');
       console.log('🎉 ALL 20 CRITICAL SECURITY & AUTHENTICATION TESTS PASSED 100%!');
       console.log('=======================================================');
-      server.close();
-      process.exit(0);
     } catch (err) {
       console.error('❌ Test failed with error:', err);
-      server.close();
-      process.exit(1);
+      process.exitCode = 1;
+    } finally {
+      await registry.teardown();
+      server.close(() => process.exit(process.exitCode || 0));
     }
   });
 };

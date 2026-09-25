@@ -29,6 +29,7 @@
 - [12. Production Deployment Guide](#12-production-deployment-guide)
 - [13. Canonical Demo Credentials](#13-canonical-demo-credentials)
 - [14. Technology Stack](#14-technology-stack)
+- [15. Known Limitations & Simulation Disclosures](#15-known-limitations--simulation-disclosures)
 
 ---
 
@@ -609,16 +610,20 @@ The frontend is ready for instant zero-config deployment on Vercel:
 
 ## 13. Canonical Demo Credentials
 
-The platform provides one-click demo credentials for instant evaluation across all three portals:
+> [!WARNING]
+> **DEMO ONLY — DO NOT USE IN PRODUCTION**  
+> These accounts and credentials are pre-seeded strictly for evaluation, testing, and live hackathon demonstrations. Real production deployments require strong administrative passwords and multi-factor authentication.
+
+The platform provides verified demo credentials for instant evaluation across all three portals:
 
 ```
 ┌────────────────────────┬──────────────────────────────────────────┬───────────────────────┬────────────────┐
 │ Stakeholder Role       │ Canonical Identifier                     │ Password              │ Facility / Area│
 ├────────────────────────┼──────────────────────────────────────────┼───────────────────────┼────────────────┤
-│ 👨‍🌾 Farmer 1 (Wheat)   │ Mobile: 9876543210 (Ramesh Patel)        │ password123           │ Chinhat, LKO   │
-│ 👨‍🌾 Farmer 2 (Paddy)   │ Mobile: 9876500004 (Kavita Devi)         │ password123           │ Kakori, LKO    │
-│ 👨‍🌾 Farmer 3 (Mustard) │ Mobile: 9876500006 (Sunil Verma)         │ password123           │ Indira Nagar   │
-│ 👨‍🌾 Farmer 4 (Paid/DBT)│ Mobile: 9876500055 (Chotey Lal)          │ password123           │ Gosainganj     │
+│ 👨‍🌾 Farmer 1 (Primary) │ Mobile: 9876543210 (Ramesh Patel)        │ password123           │ Chinhat, LKO   │
+│ 👨‍🌾 Farmer 2 (Paddy)   │ Mobile: 9876543220 (Rahul Sharma)        │ password123           │ Malihabad, LKO │
+│ 👨‍🌾 Farmer 3 (Mustard) │ Mobile: 9876543221 (Priya Verma)         │ password123           │ Mohanlalganj   │
+│ 👨‍🌾 Farmer 4 (Maize)   │ Mobile: 9876543202 (Amit Yadav)          │ password123           │ Bakshi Ka Talab│
 │ 🏢 Centre Staff Head   │ Email: gomtinagar.centre@agrinexus.demo  │ password123           │ Gomti Nagar    │
 │ 🏢 Centre Staff Head   │ Email: aliganj.centre@agrinexus.demo     │ password123           │ Aliganj        │
 │ 🏢 Centre Staff Head   │ Email: jankipuram.centre@agrinexus.demo  │ password123           │ Jankipuram     │
@@ -655,6 +660,21 @@ The platform provides one-click demo credentials for instant evaluation across a
 │ Payload Validation   │ Joi                  │ v17.13.1 (Sanitization)  │
 └──────────────────────┴──────────────────────┴──────────────────────────┘
 ```
+
+---
+
+## 15. Known Limitations & Simulation Disclosures
+
+1. **Digital India Bhashini (MeitY) Integration**:
+   - The backend includes a complete proxy service for MeitY's Dhruva/Udyat pipeline. When API credentials are not provided in `.env`, the system automatically activates a graceful fallback mode using bundled high-accuracy Hindi/English translations with zero runtime failure.
+2. **Google Maps Platform & Offline GIS**:
+   - If `VITE_GOOGLE_MAPS_API_KEY` is omitted, the frontend automatically switches to the embedded Leaflet + OpenStreetMap GIS engine. All marker positioning, interactive Mandi inspection, distance calculations, and routes operate cleanly.
+3. **Direct Benefit Transfer (DBT) Banking Simulation**:
+   - In accordance with hackathon evaluation standards, DBT payment settlement operates in `SIMULATED` / `DEMO` mode. The platform rigorously validates, transitions, and audits all payment stages (`PAYMENT_INITIATED → PAYMENT_PROCESSING → PAID`) and generates authentic digital procurement receipts without connecting to live NPCI/RBI clearinghouse switches.
+4. **Automated Lifecycle Test Execution**:
+   - Automated end-to-end integration tests execute real state-machine transitions against procurement centre queues. Because queue tokens advance sequentially, lifecycle test scripts should be run sequentially rather than concurrently to avoid queue contention.
+5. **Explicit Booking Invariant**:
+   - AgriNexus strictly adheres to the explicit farmer booking invariant. Booking creation occurs solely through explicit farmer actions (`POST /api/bookings`); the platform never automatically or silently re-books a farmer after a delivery is completed.
 
 ---
 
