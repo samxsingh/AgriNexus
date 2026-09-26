@@ -1,4 +1,4 @@
-# 🌾 AgriNexus — Smart Agricultural Procurement & Queue Management Platform
+# 🌾 AgriNexus — Smart Agricultural Procurement & Queue Management Platform SIH-26032
 
 [![Platform](https://img.shields.io/badge/Platform-Mandi%20Procurement-1B4D3E.svg?style=for-the-badge)](#)
 [![Stack](https://img.shields.io/badge/Stack-MERN%20%2B%20Socket.io-22252A.svg?style=for-the-badge)](#)
